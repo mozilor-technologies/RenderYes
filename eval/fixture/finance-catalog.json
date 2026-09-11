@@ -1,0 +1,1058 @@
+{
+  "schemaVersion": "1.0",
+  "id": "finance-eval",
+  "version": "1.0.0",
+  "description": "Personal finance reads for evaluation. A fixture we control, not a production catalog.",
+  "dataTypes": [
+    {
+      "id": "Account",
+      "version": "1.0.0",
+      "description": "A bank or brokerage account the signed-in customer holds.",
+      "schema": {
+        "type": "object"
+      },
+      "matchKey": "accountId",
+      "fields": {
+        "accountId": {
+          "label": "Account ID",
+          "semanticType": "identifier"
+        },
+        "name": {
+          "label": "Account name",
+          "semanticType": "text"
+        },
+        "institution": {
+          "label": "Institution",
+          "semanticType": "text"
+        },
+        "type": {
+          "label": "Account type",
+          "semanticType": "status"
+        },
+        "balance": {
+          "label": "Current balance",
+          "semanticType": "money"
+        },
+        "currency": {
+          "label": "Currency",
+          "semanticType": "text"
+        },
+        "openedAt": {
+          "label": "Opened",
+          "semanticType": "date"
+        }
+      }
+    },
+    {
+      "id": "Transaction",
+      "version": "1.0.0",
+      "description": "A single posted transaction on one of the customer's accounts.",
+      "schema": {
+        "type": "object"
+      },
+      "matchKey": "transactionId",
+      "fields": {
+        "transactionId": {
+          "label": "Transaction ID",
+          "semanticType": "identifier"
+        },
+        "accountId": {
+          "label": "Account ID",
+          "semanticType": "identifier"
+        },
+        "merchantId": {
+          "label": "Merchant ID",
+          "semanticType": "identifier"
+        },
+        "description": {
+          "label": "Description",
+          "semanticType": "text"
+        },
+        "amount": {
+          "label": "Amount",
+          "semanticType": "money"
+        },
+        "category": {
+          "label": "Category",
+          "semanticType": "status"
+        },
+        "status": {
+          "label": "Status",
+          "semanticType": "status"
+        },
+        "postedAt": {
+          "label": "Posted",
+          "semanticType": "date"
+        }
+      }
+    },
+    {
+      "id": "Merchant",
+      "version": "1.0.0",
+      "description": "A merchant a transaction was made with.",
+      "schema": {
+        "type": "object"
+      },
+      "matchKey": "merchantId",
+      "fields": {
+        "merchantId": {
+          "label": "Merchant ID",
+          "semanticType": "identifier"
+        },
+        "name": {
+          "label": "Merchant",
+          "semanticType": "text"
+        },
+        "sector": {
+          "label": "Sector",
+          "semanticType": "status"
+        },
+        "country": {
+          "label": "Country",
+          "semanticType": "text"
+        }
+      }
+    },
+    {
+      "id": "Holding",
+      "version": "1.0.0",
+      "description": "A position held in a brokerage account.",
+      "schema": {
+        "type": "object"
+      },
+      "matchKey": "holdingId",
+      "fields": {
+        "holdingId": {
+          "label": "Holding ID",
+          "semanticType": "identifier"
+        },
+        "accountId": {
+          "label": "Account ID",
+          "semanticType": "identifier"
+        },
+        "symbol": {
+          "label": "Symbol",
+          "semanticType": "identifier"
+        },
+        "name": {
+          "label": "Instrument",
+          "semanticType": "text"
+        },
+        "quantity": {
+          "label": "Units",
+          "semanticType": "quantity"
+        },
+        "marketValue": {
+          "label": "Market value",
+          "semanticType": "money"
+        },
+        "unrealisedGain": {
+          "label": "Unrealised gain",
+          "semanticType": "money"
+        }
+      }
+    },
+    {
+      "id": "PortfolioSummary",
+      "version": "1.0.0",
+      "description": "Aggregate position across every brokerage account.",
+      "schema": {
+        "type": "object"
+      },
+      "fields": {
+        "totalValue": {
+          "label": "Total value",
+          "semanticType": "money"
+        },
+        "totalGain": {
+          "label": "Total gain",
+          "semanticType": "money"
+        },
+        "returnRate": {
+          "label": "Return rate",
+          "semanticType": "percentage"
+        },
+        "positionCount": {
+          "label": "Positions",
+          "semanticType": "quantity"
+        }
+      }
+    },
+    {
+      "id": "CategorySpend",
+      "version": "1.0.0",
+      "description": "Spend totalled by transaction category.",
+      "schema": {
+        "type": "object"
+      },
+      "fields": {
+        "category": {
+          "label": "Category",
+          "semanticType": "status"
+        },
+        "total": {
+          "label": "Total spent",
+          "semanticType": "money"
+        },
+        "transactionCount": {
+          "label": "Transactions",
+          "semanticType": "quantity"
+        },
+        "shareOfSpend": {
+          "label": "Share of spend",
+          "semanticType": "percentage"
+        }
+      }
+    },
+    {
+      "id": "MerchantSpend",
+      "version": "1.0.0",
+      "description": "Spend totalled by merchant.",
+      "schema": {
+        "type": "object"
+      },
+      "fields": {
+        "merchantId": {
+          "label": "Merchant ID",
+          "semanticType": "identifier"
+        },
+        "merchant": {
+          "label": "Merchant",
+          "semanticType": "text"
+        },
+        "total": {
+          "label": "Total spent",
+          "semanticType": "money"
+        },
+        "transactionCount": {
+          "label": "Transactions",
+          "semanticType": "quantity"
+        }
+      }
+    },
+    {
+      "id": "CashflowPoint",
+      "version": "1.0.0",
+      "description": "Money in and out over time.",
+      "schema": {
+        "type": "object"
+      },
+      "fields": {
+        "period": {
+          "label": "Period",
+          "semanticType": "date"
+        },
+        "inflow": {
+          "label": "Money in",
+          "semanticType": "money"
+        },
+        "outflow": {
+          "label": "Money out",
+          "semanticType": "money"
+        },
+        "net": {
+          "label": "Net",
+          "semanticType": "money"
+        }
+      }
+    },
+    {
+      "id": "NetWorthPoint",
+      "version": "1.0.0",
+      "description": "Total assets minus liabilities over time.",
+      "schema": {
+        "type": "object"
+      },
+      "fields": {
+        "period": {
+          "label": "Period",
+          "semanticType": "date"
+        },
+        "assets": {
+          "label": "Assets",
+          "semanticType": "money"
+        },
+        "liabilities": {
+          "label": "Liabilities",
+          "semanticType": "money"
+        },
+        "netWorth": {
+          "label": "Net worth",
+          "semanticType": "money"
+        }
+      }
+    },
+    {
+      "id": "Budget",
+      "version": "1.0.0",
+      "description": "A spending limit the customer set for a category.",
+      "schema": {
+        "type": "object"
+      },
+      "matchKey": "budgetId",
+      "fields": {
+        "budgetId": {
+          "label": "Budget ID",
+          "semanticType": "identifier"
+        },
+        "category": {
+          "label": "Category",
+          "semanticType": "status"
+        },
+        "limit": {
+          "label": "Limit",
+          "semanticType": "money"
+        },
+        "spent": {
+          "label": "Spent",
+          "semanticType": "money"
+        },
+        "remaining": {
+          "label": "Remaining",
+          "semanticType": "money"
+        },
+        "period": {
+          "label": "Period",
+          "semanticType": "text"
+        }
+      }
+    },
+    {
+      "id": "Invoice",
+      "version": "1.0.0",
+      "description": "An invoice issued to the customer.",
+      "schema": {
+        "type": "object"
+      },
+      "matchKey": "invoiceId",
+      "fields": {
+        "invoiceId": {
+          "label": "Invoice ID",
+          "semanticType": "identifier"
+        },
+        "counterparty": {
+          "label": "Counterparty",
+          "semanticType": "text"
+        },
+        "amount": {
+          "label": "Amount",
+          "semanticType": "money"
+        },
+        "status": {
+          "label": "Status",
+          "semanticType": "status"
+        },
+        "issuedAt": {
+          "label": "Issued",
+          "semanticType": "date"
+        },
+        "dueAt": {
+          "label": "Due",
+          "semanticType": "date"
+        },
+        "daysOverdue": {
+          "label": "Days overdue",
+          "semanticType": "quantity"
+        }
+      }
+    },
+    {
+      "id": "Subscription",
+      "version": "1.0.0",
+      "description": "A recurring payment detected from transaction history.",
+      "schema": {
+        "type": "object"
+      },
+      "matchKey": "subscriptionId",
+      "fields": {
+        "subscriptionId": {
+          "label": "Subscription ID",
+          "semanticType": "identifier"
+        },
+        "merchant": {
+          "label": "Merchant",
+          "semanticType": "text"
+        },
+        "amount": {
+          "label": "Amount",
+          "semanticType": "money"
+        },
+        "cadence": {
+          "label": "Cadence",
+          "semanticType": "status"
+        },
+        "nextChargeAt": {
+          "label": "Next charge",
+          "semanticType": "date"
+        },
+        "annualCost": {
+          "label": "Annual cost",
+          "semanticType": "money"
+        }
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "finance-core",
+      "label": "Finance Core API"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "accounts.list",
+      "version": "1.0.0",
+      "purpose": "List every account the customer holds, with balances.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Account",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "type",
+          "institution",
+          "balance",
+          "currency"
+        ],
+        "sortFields": [
+          "type",
+          "institution",
+          "balance",
+          "currency"
+        ],
+        "pagination": true
+      }
+    },
+    {
+      "id": "accounts.get",
+      "version": "1.0.0",
+      "purpose": "Get one account by its identifier.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Account",
+        "shape": "entity"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      }
+    },
+    {
+      "id": "transactions.list",
+      "version": "1.0.0",
+      "purpose": "List posted transactions, filterable by account, category, status, amount, and date.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Transaction",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "accountId",
+          "category",
+          "status",
+          "amount",
+          "postedAt"
+        ],
+        "sortFields": [
+          "accountId",
+          "category",
+          "status",
+          "amount",
+          "postedAt"
+        ],
+        "pagination": true,
+        "groupFields": [
+          "category",
+          "status"
+        ],
+        "aggregates": [
+          "count",
+          "sum",
+          "average"
+        ]
+      }
+    },
+    {
+      "id": "transactions.search",
+      "version": "1.0.0",
+      "purpose": "Find transactions matching free text in their description.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Transaction",
+        "shape": "search-results"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "category",
+          "amount",
+          "postedAt"
+        ],
+        "sortFields": [
+          "category",
+          "amount",
+          "postedAt"
+        ],
+        "pagination": true
+      }
+    },
+    {
+      "id": "merchants.list",
+      "version": "1.0.0",
+      "purpose": "List merchants the customer has transacted with.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Merchant",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "sector",
+          "country"
+        ],
+        "sortFields": [
+          "sector",
+          "country"
+        ],
+        "pagination": true
+      }
+    },
+    {
+      "id": "holdings.list",
+      "version": "1.0.0",
+      "purpose": "List investment positions across brokerage accounts.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Holding",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "accountId",
+          "symbol",
+          "marketValue",
+          "unrealisedGain"
+        ],
+        "sortFields": [
+          "accountId",
+          "symbol",
+          "marketValue",
+          "unrealisedGain"
+        ],
+        "pagination": true,
+        "aggregates": [
+          "sum",
+          "average"
+        ]
+      }
+    },
+    {
+      "id": "portfolio.summary",
+      "version": "1.0.0",
+      "purpose": "Total portfolio value, gain, and return rate across all investments.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "PortfolioSummary",
+        "shape": "metric"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      }
+    },
+    {
+      "id": "spend.byCategory",
+      "version": "1.0.0",
+      "purpose": "Total spending grouped by category.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "CategorySpend",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "category",
+          "total"
+        ],
+        "sortFields": [
+          "category",
+          "total"
+        ],
+        "pagination": true
+      }
+    },
+    {
+      "id": "spend.byMerchant",
+      "version": "1.0.0",
+      "purpose": "Total spending grouped by merchant.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "MerchantSpend",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "merchant",
+          "total"
+        ],
+        "sortFields": [
+          "merchant",
+          "total"
+        ],
+        "pagination": true
+      }
+    },
+    {
+      "id": "cashflow.trend",
+      "version": "1.0.0",
+      "purpose": "Money in versus money out over time.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "CashflowPoint",
+        "shape": "time-series"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      }
+    },
+    {
+      "id": "netWorth.trend",
+      "version": "1.0.0",
+      "purpose": "Assets minus liabilities over time.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "NetWorthPoint",
+        "shape": "time-series"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      }
+    },
+    {
+      "id": "budgets.list",
+      "version": "1.0.0",
+      "purpose": "List category budgets with what has been spent against them.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Budget",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "category",
+          "period",
+          "remaining"
+        ],
+        "sortFields": [
+          "category",
+          "period",
+          "remaining"
+        ],
+        "pagination": true
+      }
+    },
+    {
+      "id": "invoices.list",
+      "version": "1.0.0",
+      "purpose": "List invoices issued to the customer.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Invoice",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "status",
+          "counterparty",
+          "amount",
+          "dueAt"
+        ],
+        "sortFields": [
+          "status",
+          "counterparty",
+          "amount",
+          "dueAt"
+        ],
+        "pagination": true,
+        "aggregates": [
+          "count",
+          "sum"
+        ]
+      }
+    },
+    {
+      "id": "invoices.overdue",
+      "version": "1.0.0",
+      "purpose": "List only invoices that are past their due date, with how many days overdue.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Invoice",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "counterparty",
+          "amount",
+          "daysOverdue"
+        ],
+        "sortFields": [
+          "counterparty",
+          "amount",
+          "daysOverdue"
+        ],
+        "pagination": true
+      }
+    },
+    {
+      "id": "subscriptions.list",
+      "version": "1.0.0",
+      "purpose": "List recurring payments detected from transaction history.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Subscription",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "merchant",
+          "cadence",
+          "amount",
+          "annualCost"
+        ],
+        "sortFields": [
+          "merchant",
+          "cadence",
+          "amount",
+          "annualCost"
+        ],
+        "pagination": true
+      }
+    },
+    {
+      "id": "subscriptions.upcoming",
+      "version": "1.0.0",
+      "purpose": "List recurring payments due to charge in the near future.",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "output": {
+        "dataTypeId": "Subscription",
+        "shape": "collection"
+      },
+      "requiredSessionKeys": [],
+      "sourceIds": [
+        "finance-core"
+      ],
+      "policy": {
+        "authentication": "session"
+      },
+      "constraints": {
+        "maximumRows": 500
+      },
+      "supports": {
+        "filterFields": [
+          "merchant",
+          "nextChargeAt",
+          "amount"
+        ],
+        "sortFields": [
+          "merchant",
+          "nextChargeAt",
+          "amount"
+        ],
+        "pagination": true
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "id": "transaction-merchant",
+      "description": "A transaction was made with a merchant.",
+      "from": {
+        "dataTypeId": "Transaction",
+        "field": "merchantId"
+      },
+      "to": {
+        "dataTypeId": "Merchant",
+        "field": "merchantId"
+      },
+      "cardinality": "many-to-one"
+    },
+    {
+      "id": "holding-account",
+      "description": "A holding sits in an account.",
+      "from": {
+        "dataTypeId": "Holding",
+        "field": "accountId"
+      },
+      "to": {
+        "dataTypeId": "Account",
+        "field": "accountId"
+      },
+      "cardinality": "many-to-one"
+    }
+  ]
+}

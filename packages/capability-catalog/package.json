@@ -1,0 +1,82 @@
+{
+  "name": "@renderyes/capability-catalog",
+  "version": "0.1.0",
+  "description": "Portable capability catalog contracts and onboarding helpers for RenderYes.",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mozilor-technologies/RenderYes.git",
+    "directory": "packages/capability-catalog"
+  },
+  "homepage": "https://github.com/mozilor-technologies/RenderYes#readme",
+  "bugs": {
+    "url": "https://github.com/mozilor-technologies/RenderYes/issues"
+  },
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "bin",
+    "examples",
+    "schemas",
+    "README.md",
+    "DIRECT_WIRING.md",
+    "GRAPHQL.md",
+    "docs"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./planner": {
+      "types": "./dist/planner.d.ts",
+      "import": "./dist/planner.js",
+      "default": "./dist/planner.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "default": "./dist/server.js"
+    },
+    "./openapi": {
+      "types": "./dist/openapi.d.ts",
+      "import": "./dist/openapi.js",
+      "default": "./dist/openapi.js"
+    },
+    "./graphql": {
+      "types": "./dist/graphql.d.ts",
+      "import": "./dist/graphql.js",
+      "default": "./dist/graphql.js"
+    },
+    "./review": {
+      "types": "./dist/review.d.ts",
+      "import": "./dist/review.js",
+      "default": "./dist/review.js"
+    },
+    "./schemas/*": "./schemas/*",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node scripts/emit-json-schemas.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run build && npm test",
+    "prepack": "node ../server/scripts/copy-host-docs.mjs capability-catalog"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "graphql": "^16.14.2",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "bin": {
+    "renderyes-catalog": "./bin/catalog.mjs"
+  }
+}

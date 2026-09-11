@@ -1,0 +1,44 @@
+{
+  "name": "@renderyes/data-runtime",
+  "version": "0.1.0",
+  "description": "Deterministic trusted capability executor for RenderYes.",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mozilor-technologies/RenderYes.git",
+    "directory": "packages/data-runtime"
+  },
+  "homepage": "https://github.com/mozilor-technologies/RenderYes#readme",
+  "bugs": {
+    "url": "https://github.com/mozilor-technologies/RenderYes/issues"
+  },
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"(no lint configured yet)\""
+  },
+  "dependencies": {
+    "@renderyes/capability-catalog": "workspace:*",
+    "@renderyes/core": "workspace:*",
+    "zod": "4.4.3"
+  }
+}

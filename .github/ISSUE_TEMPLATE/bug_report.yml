@@ -1,0 +1,76 @@
+name: Bug report
+description: Something behaves differently than documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: if this is a **security** issue, close this and use
+        [private reporting](https://github.com/mozilor-technologies/RenderYes/security)
+        instead.
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      description: Which one misbehaves? Pick the closest if you are unsure.
+      options:
+        - "@renderyes/server"
+        - "@renderyes/react"
+        - "@renderyes/capability-catalog"
+        - "@renderyes/core"
+        - "@renderyes/data-runtime"
+        - "@renderyes/planner"
+        - "@renderyes/site-sdk"
+        - "@renderyes/starter-catalog"
+        - "@renderyes/generate"
+        - "@renderyes/init"
+        - "@renderyes/catalog-review"
+        - "Not sure"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`npm ls @renderyes/server` — the installed version, not the range in package.json."
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: manager
+    attributes:
+      label: Package manager
+      description: Install path differs meaningfully between these.
+      options: [npm, pnpm, Yarn, bun, other]
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      placeholder: "22.14.0"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+      description: If a document says otherwise, link the line — that is a doc bug either way.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Smallest reproduction
+      description: >
+        Your catalog registration and the prompt, or a failing snippet.
+        Redact anything real — a synthetic schema that fails is worth more than
+        a description of one that does.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Server logs, the compose response, the publish summary.

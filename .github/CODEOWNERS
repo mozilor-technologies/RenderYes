@@ -1,0 +1,10 @@
+# Every change needs review from the maintainers team.
+#
+# Two things this file cannot do for itself:
+#   1. The team needs WRITE access to this repository. Membership in the
+#      organisation is not enough — without write access GitHub ignores the
+#      rule silently, and a pull request merges unreviewed with no warning.
+#   2. Ownership only becomes a requirement when branch protection on `main`
+#      has "Require review from Code Owners" enabled. Until then this file is
+#      a suggestion.
+*       @mozilor-technologies/sdk-maintainers

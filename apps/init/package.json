@@ -1,0 +1,35 @@
+{
+  "name": "@renderyes/init",
+  "version": "0.1.0",
+  "description": "Set up and diagnose a RenderYes integration. Run with npx; never install as a dependency.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mozilor-technologies/RenderYes.git",
+    "directory": "apps/init"
+  },
+  "homepage": "https://github.com/mozilor-technologies/RenderYes#readme",
+  "bugs": {
+    "url": "https://github.com/mozilor-technologies/RenderYes/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "bin": {
+    "renderyes-init": "./bin/init.mjs"
+  },
+  "scripts": {
+    "typecheck": "echo \"(no typecheck: plain .mjs, like the other tools)\"",
+    "lint": "echo \"(no lint configured yet)\"",
+    "test": "node --test test/*.test.mjs"
+  }
+}

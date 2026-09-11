@@ -1,0 +1,61 @@
+/**
+ * Site-wide theme.
+ *
+ * Both colour schemes are defined explicitly. `respectPrefersColorScheme` is on,
+ * so a visitor arrives in whichever their system asks for, and every custom
+ * token below has a value in both — a token defined only in light leaves a dark
+ * reader with an unreadable panel.
+ */
+
+:root {
+  --ifm-color-primary: #1d6f5c;
+  --ifm-color-primary-dark: #1a6453;
+  --ifm-color-primary-darker: #185e4e;
+  --ifm-color-primary-darkest: #144d40;
+  --ifm-color-primary-light: #207a65;
+  --ifm-color-primary-lighter: #22806a;
+  --ifm-color-primary-lightest: #269178;
+
+  --ifm-code-font-size: 92%;
+  --ifm-font-color-secondary: #48505a;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.08);
+
+  --ry-hero-from: #f3f7f5;
+  --ry-hero-to: #ffffff;
+  --ry-section-alt: #f7f9f8;
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #5fd0b0;
+  --ifm-color-primary-dark: #45c8a3;
+  --ifm-color-primary-darker: #38c39c;
+  --ifm-color-primary-darkest: #2ba284;
+  --ifm-color-primary-light: #79d8bd;
+  --ifm-color-primary-lighter: #86dcc4;
+  --ifm-color-primary-lightest: #aae8d6;
+
+  --ifm-font-color-secondary: #b3bcc6;
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.1);
+
+  --ry-hero-from: #1b1f23;
+  --ry-hero-to: var(--ifm-background-color);
+  --ry-section-alt: #1b1f23;
+}
+
+/* These guides carry wide tables and long code samples. Let each scroll inside
+   its own box rather than forcing the whole page sideways. */
+.markdown table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.markdown pre {
+  overflow-x: auto;
+}
+
+/* The documents are long — BUILD_A_HOST alone is over 1,500 lines — so the
+   in-page table of contents is the main way through them. */
+.table-of-contents {
+  font-size: 0.82rem;
+}

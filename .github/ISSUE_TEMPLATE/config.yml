@@ -1,0 +1,8 @@
+# Blank issues stay open on purpose. The two templates below cover bugs and
+# proposals; a question fits neither, and Discussions is deliberately off, so
+# without this a reader with a question has nowhere to go.
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/mozilor-technologies/RenderYes/security/advisories/new
+    about: Never open a public issue for a vulnerability. Report it privately here.

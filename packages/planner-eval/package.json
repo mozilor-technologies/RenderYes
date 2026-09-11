@@ -1,0 +1,41 @@
+{
+  "name": "@renderyes/planner-eval",
+  "version": "0.1.0",
+  "description": "Measures planner quality: which capability and component a prompt actually selects, and how often the first attempt is valid.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"(no lint configured yet)\"",
+    "eval": "node cli.mjs"
+  },
+  "dependencies": {
+    "@renderyes/capability-catalog": "workspace:*",
+    "@renderyes/core": "workspace:*",
+    "@renderyes/planner": "workspace:*",
+    "@renderyes/site-sdk": "workspace:*",
+    "@renderyes/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  },
+  "files": [
+    "dist",
+    "cli.mjs",
+    "README.md"
+  ]
+}

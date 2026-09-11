@@ -1,0 +1,25 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "fixed": [
+    [
+      "@renderyes/capability-catalog",
+      "@renderyes/catalog-review",
+      "@renderyes/core",
+      "@renderyes/data-runtime",
+      "@renderyes/generate",
+      "@renderyes/init",
+      "@renderyes/planner",
+      "@renderyes/react",
+      "@renderyes/server",
+      "@renderyes/site-sdk",
+      "@renderyes/starter-catalog"
+    ]
+  ],
+  "linked": [],
+  "ignore": []
+}

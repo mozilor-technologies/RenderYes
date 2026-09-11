@@ -1,0 +1,32 @@
+{
+  "name": "renderyes-website",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The RenderYes documentation site. Renders docs/ as-is; it is not a workspace package.",
+  "scripts": {
+    "start": "docusaurus start",
+    "prebuild": "node scripts/check-sidebar.mjs",
+    "build": "docusaurus build",
+    "serve": "docusaurus serve",
+    "clear": "docusaurus clear",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/preset-classic": "3.10.2",
+    "@mdx-js/react": "^3.0.0",
+    "clsx": "^2.1.1",
+    "prism-react-renderer": "^2.4.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@docusaurus/module-type-aliases": "3.10.2",
+    "@docusaurus/tsconfig": "3.10.2",
+    "@docusaurus/types": "3.10.2",
+    "typescript": "~5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

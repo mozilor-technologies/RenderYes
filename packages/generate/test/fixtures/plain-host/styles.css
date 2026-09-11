@@ -1,0 +1,95 @@
+/* PantryQL fixture stylesheet — plain CSS with a token block. */
+:root {
+  --iv-starter-surface: #ffffff;
+  --iv-starter-fg: #1f2937;
+  --iv-starter-muted: #6b7280;
+  --iv-starter-border: #e5e7eb;
+  --iv-starter-accent: #047857;
+  --iv-starter-radius: 10px;
+  --iv-starter-font: ui-sans-serif, system-ui, sans-serif;
+}
+
+.pantry-list {
+  background: var(--iv-starter-surface);
+  color: var(--iv-starter-fg);
+  border: 1px solid var(--iv-starter-border);
+  border-radius: var(--iv-starter-radius);
+  font-family: var(--iv-starter-font);
+  padding: 16px;
+}
+
+.pantry-heading {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
+.pantry-subheading {
+  margin: 12px 0 4px;
+  font-size: 0.95rem;
+  color: var(--iv-starter-muted);
+}
+
+.pantry-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.pantry-item {
+  border: 1px solid var(--iv-starter-border);
+  border-radius: var(--iv-starter-radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.pantry-name {
+  font-weight: 600;
+  flex: 1 1 100%;
+}
+
+.pantry-quantity {
+  background: var(--iv-starter-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.85rem;
+}
+
+.pantry-status {
+  border: 1px solid var(--iv-starter-accent);
+  color: var(--iv-starter-accent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.85rem;
+}
+
+.pantry-price {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.pantry-expiry {
+  color: var(--iv-starter-muted);
+  font-size: 0.85rem;
+}
+
+.pantry-note {
+  color: var(--iv-starter-muted);
+  font-style: italic;
+  margin: 4px 0;
+}
+
+.pantry-empty {
+  color: var(--iv-starter-muted);
+  margin: 0;
+}
+
+.pantry-error {
+  color: #b91c1c;
+  margin: 0;
+}

@@ -1,0 +1,58 @@
+{
+  "name": "@renderyes/server",
+  "version": "0.1.0",
+  "description": "The backend a host runs: catalog/UI registries and the /compose pipeline behind @renderyes/react.",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mozilor-technologies/RenderYes.git",
+    "directory": "packages/server"
+  },
+  "homepage": "https://github.com/mozilor-technologies/RenderYes#readme",
+  "bugs": {
+    "url": "https://github.com/mozilor-technologies/RenderYes/issues"
+  },
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js",
+      "default": "./dist/node.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "AGENTS.md"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"(no lint configured yet)\"",
+    "prepack": "node scripts/copy-host-docs.mjs"
+  },
+  "dependencies": {
+    "@renderyes/capability-catalog": "workspace:*",
+    "@renderyes/core": "workspace:*",
+    "@renderyes/data-runtime": "workspace:*",
+    "@renderyes/planner": "workspace:*",
+    "@renderyes/site-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@renderyes/starter-catalog": "workspace:*"
+  }
+}

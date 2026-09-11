@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a capability, an API change, or a different shape.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you unable to do today? Describe the situation, not the
+        solution — the shape we land on is often not the one proposed, and the
+        problem is the part we cannot reconstruct later.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: An API sketch is welcome but not required.
+  - type: textarea
+    id: nongoals
+    attributes:
+      label: Which non-goal does this brush against?
+      description: >
+        [`docs/PRODUCT.md`](https://github.com/mozilor-technologies/RenderYes/blob/main/docs/PRODUCT.md)
+        lists what RenderYes deliberately will not do. If your request is near
+        one of them, say which and why this case is different. "None that I can
+        see" is a fine answer — we would rather you looked.
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you are doing instead today
+      description: Tells us how much this costs you, which is most of the prioritisation.

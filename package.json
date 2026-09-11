@@ -1,0 +1,42 @@
+{
+  "name": "renderyes",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.20.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:versions": "node scripts/check-lockstep-versions.mjs",
+    "check": "pnpm check:versions && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "review:dev": "pnpm --filter @renderyes/catalog-review dev",
+    "review:build": "pnpm --filter @renderyes/catalog-review build",
+    "sync:local": "bash scripts/sync-local-packages.sh",
+    "smoke:install": "bash scripts/smoke-install.sh",
+    "eval": "node packages/planner-eval/cli.mjs --catalog eval/fixture/finance-catalog.json --cases eval/cases/finance.cases.json",
+    "eval:catalog": "node eval/fixture/build-catalog.mjs",
+    "metrics:report": "node scripts/compose-metrics-report.mjs",
+    "outcome:report": "node scripts/compose-outcome-report.mjs"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-import-x": "^4.17.1",
+    "prettier": "^3.9.6",
+    "turbo": "^2.1.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^2.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

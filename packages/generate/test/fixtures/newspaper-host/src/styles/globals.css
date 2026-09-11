@@ -1,0 +1,21 @@
+/* The host's token layer. A generated component must compose from these
+   rather than inventing hex values — the fidelity gate the verifier enforces. */
+.bt {
+  --bt-surface: #fffdf8;
+  --bt-ink: #16130f;
+  --bt-rule: #d9d2c5;
+  --bt-masthead: #7f1d1d;
+  --bt-font-headline: "Playfair Display", Georgia, serif;
+  --bt-radius: 2px;
+  --bt-space: 0.75rem;
+}
+.bt-card { background: var(--bt-surface); color: var(--bt-ink);
+  border: 1px solid var(--bt-rule); border-radius: var(--bt-radius); padding: var(--bt-space); }
+.bt-kicker { color: var(--bt-masthead); font-size: 0.75rem; text-transform: uppercase; }
+.bt-headline { font-family: var(--bt-font-headline); font-size: 1.25rem; margin: 0; }
+.bt-byline { color: var(--bt-ink); opacity: 0.7; font-size: 0.8125rem; }
+.bt-empty { color: var(--bt-ink); opacity: 0.6; }
+.bt-error { color: var(--bt-masthead); }
+.bt-note { color: var(--bt-ink); opacity: 0.7; font-size: 0.75rem; }
+.bt-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--bt-space); }
+.bt-item { display: grid; gap: 0.25rem; }

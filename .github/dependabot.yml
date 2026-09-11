@@ -1,0 +1,44 @@
+version: 2
+updates:
+  # The workflow pins actions to commit SHAs, which is correct and which rots
+  # silently — a pinned action never picks up its own security fixes. This is
+  # what keeps the pins current, and it rewrites the trailing version comment
+  # along with the SHA.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      dev-dependencies:
+        dependency-type: development
+    ignore:
+      # Pinned exactly and deliberately: two Zod majors coexist here and the
+      # boundary must not be crossed. See AGENTS.md, "Dependency constraints".
+      - dependency-name: zod
+      # Must match what @a2ui/react resolves; bumping it alone puts two copies
+      # of web_core in a consumer's tree, with two class identities.
+      - dependency-name: "@a2ui/web_core"
+
+  # The documentation site is outside the pnpm workspace, so the entry above
+  # does not see it. Without this its Docusaurus tree is never updated.
+  - package-ecosystem: npm
+    directory: "/website"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      docusaurus:
+        patterns:
+          - "@docusaurus/*"

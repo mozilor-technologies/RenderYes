@@ -1,0 +1,1860 @@
+:root {
+  color: #172235;
+  background: #f5f7fb;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+
+.source-mode {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  width: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #dce5ff;
+  background: #172950;
+  border-radius: 0;
+  padding: 10px max(18px, calc((100vw - 1380px) / 2 + 28px));
+}
+.source-mode strong {
+  margin-right: 8px;
+  font-size: 0.82rem;
+}
+.source-mode button {
+  width: auto;
+  color: #dce5ff;
+  border: 1px solid #526998;
+  border-radius: 999px;
+  padding: 7px 12px;
+  margin: 0;
+}
+.source-mode button.active {
+  color: #172950;
+  background: white;
+  border-color: white;
+}
+
+main {
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 42px 28px 64px;
+}
+.hero,
+.panel-heading,
+.summary,
+.workspace,
+.bottom-grid {
+  display: flex;
+  gap: 24px;
+}
+.hero {
+  align-items: start;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+h1 {
+  font-size: clamp(2.2rem, 5vw, 3.8rem);
+  letter-spacing: -0.055em;
+  margin-bottom: 8px;
+}
+h2 {
+  font-size: 1.45rem;
+  letter-spacing: -0.03em;
+  margin-bottom: 8px;
+}
+h3 {
+  margin-bottom: 8px;
+}
+.lede {
+  color: #516078;
+  font-size: 1.1rem;
+  margin-bottom: 0;
+}
+.eyebrow,
+.nav-label {
+  color: #405ccc;
+  font-size: 0.75rem;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.local-note {
+  min-width: 210px;
+  padding: 14px 16px;
+  background: #eaf1ff;
+  border: 1px solid #c7d7ff;
+  border-radius: 12px;
+}
+.local-note strong,
+.local-note span {
+  display: block;
+}
+.local-note span {
+  color: #415273;
+  font-size: 0.86rem;
+  margin-top: 4px;
+}
+
+.load-panel,
+.configure-panel {
+  background: white;
+  border: 1px solid #dce3f0;
+  border-radius: 16px;
+  padding: 25px 28px;
+  margin-bottom: 22px;
+}
+.load-panel > p,
+.configure-panel > p {
+  color: #5f6d83;
+  line-height: 1.45;
+}
+.load-actions,
+.export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+.load-actions button,
+.file-button,
+.parse-button,
+.configure-panel > button {
+  color: #29384f;
+  background: white;
+  border: 1px solid #cbd5e4;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-weight: 650;
+}
+.file-button {
+  display: inline-flex;
+  align-items: center;
+}
+.file-button input {
+  display: none;
+}
+.primary {
+  color: white !important;
+  background: #3855cf !important;
+  border-color: #3855cf !important;
+}
+.paste-label {
+  color: #36435a;
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+.paste-label textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  color: #26344e;
+  background: #fbfcff;
+  border: 1px solid #cdd7e8;
+  border-radius: 9px;
+  margin-top: 8px;
+  padding: 12px;
+  line-height: 1.4;
+}
+.parse-button {
+  margin-top: 10px;
+}
+.form-error {
+  color: #a72d2d !important;
+  background: #fff3f3;
+  border: 1px solid #efb8b8;
+  border-radius: 8px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+}
+
+.step-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.step-heading > div > p:last-child {
+  color: #5f6d83;
+  line-height: 1.45;
+  margin-bottom: 0;
+}
+.approval-cart {
+  min-width: 220px;
+  background: #172950;
+  border-radius: 12px;
+  color: #e8efff;
+  padding: 13px 14px;
+}
+.approval-cart strong,
+.approval-cart span {
+  display: block;
+}
+.approval-cart span {
+  color: #afc0e8;
+  font-size: 0.8rem;
+  margin: 4px 0 10px;
+}
+.approval-cart button {
+  border-radius: 7px;
+  border: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+.catalog-form,
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+.catalog-form label,
+.form-grid label {
+  color: #35415a;
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.catalog-form label span,
+.form-grid label span {
+  color: #748095;
+  font-weight: 500;
+}
+.catalog-form input,
+.form-grid input,
+.form-grid select,
+.form-grid textarea {
+  display: block;
+  width: 100%;
+  color: #24324b;
+  background: white;
+  border: 1px solid #cdd7e8;
+  border-radius: 8px;
+  margin-top: 6px;
+  padding: 9px 10px;
+}
+.catalog-form .wide,
+.form-grid .wide {
+  grid-column: 1 / -1;
+}
+.group-list {
+  display: grid;
+  gap: 15px;
+  margin: 24px 0;
+}
+.operation-group {
+  border: 1px solid #dce3f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: #f5f7fc;
+  border-bottom: 1px solid #e3e9f3;
+}
+.group-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.group-header p {
+  color: #69758a;
+  font-size: 0.82rem;
+  margin: 4px 0 0;
+}
+.group-header button,
+.configure-button {
+  color: #2e4265;
+  background: white;
+  border: 1px solid #cbd6e6;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.group-header button:disabled,
+.configure-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.operation-list {
+  display: grid;
+}
+.operation-row {
+  border-bottom: 1px solid #e8edf4;
+}
+.operation-row:last-child {
+  border-bottom: 0;
+}
+.operation-row.included {
+  background: #f7fbff;
+  box-shadow: inset 3px 0 0 #3855cf;
+}
+.operation-main {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+}
+.operation-main > label {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+}
+.operation-main input {
+  accent-color: #3855cf;
+  margin-top: 3px;
+}
+.operation-main strong,
+.operation-main code {
+  display: block;
+}
+.operation-main strong {
+  font-size: 0.92rem;
+}
+.operation-main code {
+  color: #5c6b83;
+  font-size: 0.74rem;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.operation-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 5px;
+}
+.badge {
+  border-radius: 999px;
+  font-size: 0.71rem;
+  font-weight: 750;
+  padding: 5px 7px;
+  white-space: nowrap;
+}
+.badge.supported {
+  color: #17633a;
+  background: #e5f6eb;
+}
+.badge.unsupported {
+  color: #9c4611;
+  background: #fff1e7;
+}
+.badge.review {
+  color: #4059a8;
+  background: #e8eeff;
+}
+.badge.operational {
+  color: #6c5324;
+  background: #fff7dc;
+}
+.badge.admin {
+  color: #9c2e2e;
+  background: #ffebeb;
+}
+.support-reason {
+  color: #9b4c1b;
+  grid-column: 1 / -1;
+  padding: 0 16px 10px 42px;
+}
+.inline-config {
+  background: #edf3ff;
+  border-top: 1px solid #d5e0f4;
+  padding: 16px 18px 4px;
+}
+.inline-config > p {
+  color: #42506b;
+  margin-bottom: 0;
+}
+.inline-config > p span {
+  color: #68758b;
+  font-size: 0.86rem;
+}
+.advanced-config {
+  margin: 12px 0 14px;
+  border: 1px solid #d5e0f4;
+  border-radius: 10px;
+  background: #f8faff;
+}
+.advanced-config summary {
+  cursor: pointer;
+  color: #344b88;
+  font-weight: 700;
+  padding: 12px 14px;
+}
+.advanced-config[open] summary {
+  border-bottom: 1px solid #d5e0f4;
+}
+.advanced-config > p {
+  color: #68758b;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  margin: 12px 14px 0;
+}
+.advanced-config .form-grid {
+  padding: 0 14px 4px;
+}
+.operation-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+  gap: 10px;
+  margin: 20px 0;
+}
+.operation-picker button {
+  color: #33435f;
+  text-align: left;
+  background: #fbfcff;
+  border: 1px solid #d4ddea;
+  border-radius: 10px;
+  padding: 13px;
+}
+.operation-picker button.active {
+  color: #14265d;
+  background: #eef3ff;
+  border-color: #5574d7;
+  box-shadow: inset 0 0 0 1px #5574d7;
+}
+.operation-picker strong,
+.operation-picker span,
+.operation-picker small {
+  display: block;
+}
+.operation-picker span {
+  color: #4260c9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  margin-top: 5px;
+}
+.operation-picker small {
+  color: #68758a;
+  line-height: 1.35;
+  margin-top: 6px;
+}
+
+.summary {
+  margin-bottom: 22px;
+}
+.summary > div {
+  flex: 1;
+  padding: 18px;
+  border: 1px solid #dce3f0;
+  background: white;
+  border-radius: 14px;
+}
+.summary span,
+.summary small {
+  color: #66738a;
+  display: block;
+}
+.summary strong {
+  display: block;
+  font-size: 1.12rem;
+  margin: 4px 0;
+}
+.summary .ready {
+  border-color: #a7d6bd;
+  background: #f1fbf5;
+}
+.summary .blocked {
+  border-color: #efb6b6;
+  background: #fff5f5;
+}
+
+.workspace {
+  align-items: stretch;
+  margin-bottom: 22px;
+}
+nav {
+  width: 260px;
+  flex: 0 0 260px;
+  padding: 16px;
+  background: #1c2950;
+  border-radius: 16px;
+}
+nav .nav-label {
+  color: #a9bdff;
+  margin: 4px 8px 12px;
+}
+nav button {
+  width: 100%;
+  color: #dce5ff;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 6px;
+}
+nav button:hover,
+nav button.active {
+  background: #314782;
+  border-color: #5975c6;
+}
+nav button span,
+nav button small {
+  display: block;
+}
+nav button small {
+  color: #a9b7d8;
+  margin-top: 4px;
+}
+
+.review-panel,
+.issues,
+.export-panel {
+  background: white;
+  border: 1px solid #dce3f0;
+  border-radius: 16px;
+}
+.review-panel {
+  flex: 1;
+  overflow: hidden;
+}
+.panel-heading {
+  align-items: start;
+  justify-content: space-between;
+  padding: 26px 28px;
+  background: linear-gradient(110deg, #f0f4ff, #fff);
+  border-bottom: 1px solid #dce3f0;
+}
+.panel-heading p {
+  color: #536178;
+  margin-bottom: 0;
+}
+.pill {
+  color: #285f42;
+  background: #e6f6ec;
+  border-radius: 999px;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.review-section {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.72fr) 1.28fr;
+  gap: 32px;
+  padding: 24px 28px;
+  border-bottom: 1px solid #e7ebf3;
+}
+.review-section:last-child {
+  border-bottom: 0;
+}
+.section-copy p,
+.muted {
+  color: #67758b;
+  line-height: 1.45;
+  margin-bottom: 0;
+}
+.approval-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.approval-list li {
+  border: 1px solid #dbe2ed;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.approval-list li.not-approved {
+  background: #fbfcfe;
+  border-style: dashed;
+  opacity: 0.78;
+}
+.approval-list label {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+}
+.approval-list input {
+  accent-color: #3855cf;
+  margin-top: 3px;
+}
+.approval-list strong,
+.approval-list code,
+.approval-list small,
+.approval-list em {
+  display: block;
+}
+.approval-list code,
+.issues code {
+  color: #5b6880;
+  font-size: 0.78rem;
+  margin-top: 2px;
+}
+.approval-list small {
+  color: #5c697d;
+  margin-top: 4px;
+  line-height: 1.35;
+}
+.approval-list em {
+  color: #9a5a07;
+  font-size: 0.76rem;
+  font-style: normal;
+  margin-top: 4px;
+}
+.locked-section {
+  background: #f8fafc;
+}
+.locked-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: start;
+  gap: 8px;
+}
+.locked-keys span {
+  color: #4e3f1b;
+  background: #fff6d8;
+  border: 1px solid #ead98f;
+  border-radius: 999px;
+  padding: 8px 10px;
+  font-size: 0.88rem;
+}
+
+.bottom-grid {
+  align-items: start;
+}
+.issues,
+.export-panel {
+  flex: 1;
+  padding: 25px 28px;
+}
+.issues ul {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+}
+.issues li {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 8px 12px;
+  border-top: 1px solid #e6eaf1;
+  padding: 12px 0;
+}
+.issues li strong {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.issues li.warning strong {
+  color: #a45a02;
+}
+.issues li.error strong {
+  color: #b52f2f;
+}
+.issues li code {
+  grid-column: 2;
+}
+.success-message {
+  color: #287044;
+  background: #eff9f2;
+  border-radius: 9px;
+  padding: 12px;
+}
+.export-panel p:not(.eyebrow) {
+  color: #5f6d83;
+  line-height: 1.45;
+}
+.export-actions {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0;
+}
+.export-actions button {
+  color: #29384f;
+  background: white;
+  border: 1px solid #cbd5e4;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-weight: 650;
+}
+.export-actions .primary {
+  color: white;
+  background: #3855cf;
+  border-color: #3855cf;
+}
+pre {
+  max-height: 315px;
+  overflow: auto;
+  color: #d9e4ff;
+  background: #17213d;
+  border-radius: 10px;
+  margin: 0;
+  padding: 16px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.graphql-query-list {
+  margin-top: 22px;
+  border: 1px solid #dce3f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.graphql-review-panel {
+  max-width: 1380px;
+  margin: 0 auto 22px;
+}
+.graphql-argument-list {
+  display: grid;
+  gap: 9px;
+}
+.graphql-argument {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 190px minmax(190px, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #dbe2ed;
+  border-radius: 10px;
+}
+.graphql-argument strong,
+.graphql-argument code {
+  display: block;
+}
+.graphql-argument code {
+  color: #5b6880;
+  font-size: 0.78rem;
+  margin-top: 3px;
+}
+.graphql-argument .badge {
+  display: inline-block;
+  margin-top: 5px;
+}
+.graphql-argument select,
+.graphql-argument input,
+.graphql-review-panel .approval-list select {
+  width: 100%;
+  color: #24324b;
+  background: white;
+  border: 1px solid #cdd7e8;
+  border-radius: 8px;
+  padding: 8px 9px;
+}
+.graphql-review-panel .approval-list li {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 150px 120px;
+  gap: 12px;
+  align-items: center;
+}
+.required-field {
+  font-size: 0.76rem;
+  align-items: center !important;
+}
+.graphql-export {
+  max-width: 1380px;
+  margin: 0 auto;
+}
+.mode-choice-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  max-width: 980px;
+  margin: 42px auto;
+}
+.mode-choice {
+  display: grid;
+  gap: 10px;
+  min-height: 190px;
+  padding: 28px;
+  text-align: left;
+  border: 1px solid #cfd9eb;
+  border-radius: 16px;
+  background: #fff;
+  color: #223453;
+}
+.mode-choice strong {
+  font-size: 1.25rem;
+}
+.mode-choice span {
+  line-height: 1.5;
+  font-weight: 500;
+}
+.mode-choice.primary {
+  background: #2949ba;
+  color: #fff;
+  border-color: #2949ba;
+}
+.curated-summary {
+  max-width: 980px;
+  margin: 26px auto;
+}
+.curated-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin: 14px 0;
+  color: #586984;
+}
+.curated-stats strong {
+  color: #1d2c48;
+}
+.curated-confirm {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 22px 0;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.curated-confirm input {
+  margin-top: 0.25rem;
+}
+
+.classification-source {
+  color: #5f6d83;
+  margin: 12px 0;
+}
+.classifier-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.classifier-status.live {
+  color: #17643a;
+  background: #dff7e8;
+}
+.classifier-status.fallback {
+  color: #4f596b;
+  background: #edf0f5;
+}
+.badge.effect-read-only-query {
+  background: #dff7e8;
+  color: #17643a;
+}
+.badge.effect-state-changing-action {
+  background: #ffe3e1;
+  color: #9a2f28;
+}
+.badge.effect-ambiguous {
+  background: #fff1cb;
+  color: #785a06;
+}
+.badge.effect-fallback {
+  color: #4f596b;
+  background: #edf0f5;
+}
+.classification-details {
+  grid-column: 1 / -1;
+  color: #5f6d83;
+  font-size: 0.82rem;
+}
+.classification-details summary {
+  cursor: pointer;
+  color: #405170;
+  font-weight: 700;
+}
+.classification-details p {
+  margin: 6px 0;
+}
+
+/* Host onboarding v2: a compact approval workflow, not a developer inventory. */
+.review-v2 {
+  padding-top: 30px;
+}
+.compact-hero {
+  margin-bottom: 18px;
+  padding-bottom: 0;
+}
+.compact-hero h1 {
+  font-size: clamp(2.25rem, 4vw, 3.45rem);
+  max-width: 820px;
+}
+.compact-hero .lede {
+  font-size: 1rem;
+}
+.compact-load details > summary,
+.catalog-settings > summary,
+.publish-panel details > summary {
+  cursor: pointer;
+  font-weight: 750;
+  color: #273858;
+}
+.compact-load {
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+}
+.compact-load details > summary span {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+}
+.compact-load details > summary small,
+.catalog-settings summary span {
+  color: #6a778d;
+  font-weight: 500;
+}
+.load-details {
+  margin-top: 18px;
+}
+.load-details h2 {
+  font-size: 1.15rem;
+}
+.restore-draft {
+  margin-top: 12px;
+}
+.workflow-bar {
+  display: flex;
+  gap: 8px;
+  margin: 0 auto 14px;
+  max-width: 1380px;
+}
+.workflow-bar button {
+  color: #6a778d;
+  background: #eef1f6;
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 11px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.workflow-bar button.active {
+  color: #183f9a;
+  background: #e8eeff;
+}
+.workflow-bar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+.review-v2 .review-section {
+  grid-template-columns: minmax(230px, 0.58fr) minmax(0, 1.42fr);
+  gap: 24px;
+  padding: 20px 24px;
+}
+.review-v2 .review-section h3 {
+  margin-bottom: 6px;
+  font-size: 1.05rem;
+}
+.review-v2 .approval-list {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.review-v2 .approval-list li {
+  min-height: 82px;
+  padding: 12px 14px;
+}
+.review-v2 .approval-list strong {
+  color: #202f4a;
+  font-size: 0.96rem;
+}
+.review-v2 .approval-list code {
+  font-size: 0.74rem;
+}
+.review-v2 .approval-list em {
+  color: #9a5a07;
+}
+.triage-panel {
+  max-width: 1380px;
+  margin: 0 auto 16px;
+  padding: 22px;
+}
+.triage-panel .step-heading {
+  align-items: stretch;
+}
+.triage-panel .step-heading > div {
+  max-width: 780px;
+}
+.triage-panel .step-heading > div > p:last-child {
+  font-size: 0.93rem;
+}
+.operation-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+.operation-tools > input {
+  flex: 1 1 260px;
+  max-width: 430px;
+  color: #24324b;
+  background: white;
+  border: 1px solid #cdd7e8;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.operation-tools [role="group"] {
+  display: flex;
+  flex: 0 1 auto;
+  max-width: 100%;
+  overflow-x: auto;
+  gap: 7px;
+  padding-bottom: 2px;
+}
+.operation-tools [role="group"] button {
+  flex: 0 0 auto;
+}
+.operation-tools button {
+  color: #53627b;
+  background: white;
+  border: 1px solid #d1dae8;
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+}
+.operation-tools button.active {
+  color: #183f9a;
+  background: #e8eeff;
+  border-color: #9eb2ef;
+  font-weight: 750;
+}
+.catalog-settings {
+  margin: 14px 0;
+  border: 1px solid #dce3f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fbfcff;
+}
+.catalog-settings[open] summary {
+  margin-bottom: 2px;
+}
+.draft-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  max-width: 1380px;
+  margin: 0 auto 22px;
+  color: #596980;
+  font-size: 0.85rem;
+}
+.draft-controls label {
+  color: #34435d;
+  font-weight: 700;
+}
+.draft-controls small {
+  flex: 1 1 320px;
+}
+.draft-controls button {
+  color: #6f3b20;
+  background: white;
+  border: 1px solid #e0c6b5;
+  border-radius: 7px;
+  padding: 7px 9px;
+}
+.data-approval {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 18px;
+  max-width: 1380px;
+  margin: 0 auto 22px;
+}
+.data-approval nav {
+  padding: 16px;
+  background: #f7f9fc;
+  border: 1px solid #dce3f0;
+  border-radius: 12px;
+}
+.data-approval nav button {
+  display: block;
+  width: 100%;
+  color: #36455e;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px;
+}
+.data-approval nav button.active {
+  color: #14265d;
+  background: #e8eeff;
+}
+.data-approval nav span,
+.data-approval nav small {
+  display: block;
+}
+.data-approval nav small {
+  color: #68758a;
+  margin-top: 4px;
+}
+.publish-panel {
+  max-width: 1380px;
+  margin: 0 auto 30px;
+  padding: 24px 28px;
+  background: #f7f9ff;
+  border: 1px solid #d5def3;
+  border-radius: 14px;
+}
+.publish-panel details {
+  margin: 16px 0;
+}
+.publish-panel .paste-label {
+  margin-top: 12px;
+}
+.publish-panel .primary {
+  margin-top: 16px;
+}
+
+/* The selected-data action remains available while the host scans a long API. */
+.review-v2 .approval-cart {
+  position: sticky;
+  top: 68px;
+  align-self: start;
+  min-width: 258px;
+  max-width: 290px;
+  color: #24324b;
+  background: #f6f8fd;
+  border: 1px solid #d9e2f1;
+  box-shadow: 0 8px 24px rgba(31, 52, 99, 0.08);
+  padding: 15px;
+}
+.review-v2 .approval-cart strong {
+  color: #152957;
+  font-size: 1.06rem;
+}
+.review-v2 .approval-cart span {
+  color: #667691;
+  margin-bottom: 12px;
+}
+.review-v2 .approval-cart button {
+  min-height: 34px;
+  color: #31425f;
+  background: white;
+  border: 1px solid #cbd6e7;
+}
+.review-v2 .approval-cart .primary {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+}
+.review-v2 .approval-cart small {
+  display: block;
+  color: #60708a;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  margin-top: 9px;
+}
+
+/* Rows are intentionally scannable; detail stays available without taking over the list. */
+.review-v2 .group-list {
+  gap: 12px;
+  margin: 18px 0;
+}
+.review-v2 .operation-group {
+  border-radius: 10px;
+}
+.review-v2 .group-header {
+  padding: 10px 14px;
+  background: #f8faff;
+}
+.review-v2 .group-header h3 {
+  font-size: 0.92rem;
+}
+.review-v2 .group-header p {
+  display: inline;
+  margin-left: 7px;
+  font-size: 0.76rem;
+}
+.review-v2 .operation-main {
+  grid-template-columns: minmax(250px, 1fr) minmax(260px, auto) auto;
+  gap: 10px 14px;
+  padding: 10px 14px;
+}
+.review-v2 .operation-main strong {
+  font-size: 0.88rem;
+}
+.review-v2 .operation-main code {
+  font-size: 0.72rem;
+}
+.review-v2 .operation-badges {
+  gap: 4px;
+}
+.review-v2 .badge {
+  font-size: 0.68rem;
+  padding: 4px 6px;
+}
+.review-v2 .badge.risk-signal {
+  color: #647087;
+  background: #f0f3f8;
+}
+.review-v2 .classification-details {
+  grid-column: 1 / 3;
+  margin: 0;
+  padding-left: 25px;
+}
+.review-v2 .classification-details summary {
+  font-size: 0.76rem;
+}
+.review-v2 .classification-details[open] {
+  margin-top: -2px;
+  padding-bottom: 4px;
+}
+.review-v2 .classification-details p {
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+.review-v2 .configure-button {
+  align-self: center;
+  justify-self: end;
+  width: auto;
+  white-space: nowrap;
+  padding: 6px 8px;
+  font-size: 0.76rem;
+}
+.review-v2 .support-reason {
+  color: #a3592b;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  padding: 0 0 4px 35px;
+}
+.review-v2 .operation-row.included {
+  background: #f8fbff;
+}
+
+@media (max-width: 820px) {
+  main {
+    padding: 24px 16px 44px;
+  }
+  .hero,
+  .summary,
+  .workspace,
+  .bottom-grid,
+  .panel-heading {
+    display: block;
+  }
+  .local-note {
+    margin-top: 18px;
+  }
+  .summary > div {
+    margin-bottom: 10px;
+  }
+  nav {
+    width: auto;
+    margin-bottom: 16px;
+  }
+  .review-section {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .pill {
+    display: inline-block;
+    margin-top: 14px;
+    white-space: normal;
+  }
+  .issues,
+  .export-panel {
+    margin-bottom: 16px;
+  }
+  .step-heading {
+    display: block;
+  }
+  .approval-cart {
+    margin-top: 16px;
+  }
+  .review-v2 .approval-cart {
+    position: static;
+    max-width: none;
+  }
+  .catalog-form,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .catalog-form .wide,
+  .form-grid .wide {
+    grid-column: auto;
+  }
+  .operation-main,
+  .review-v2 .operation-main {
+    grid-template-columns: 1fr auto;
+  }
+  .operation-badges {
+    justify-content: start;
+    grid-column: 1 / -1;
+  }
+  .configure-button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  .graphql-argument,
+  .graphql-review-panel .approval-list li {
+    grid-template-columns: 1fr;
+  }
+  .workflow-bar {
+    overflow-x: auto;
+  }
+  .data-approval {
+    grid-template-columns: 1fr;
+  }
+  .data-approval nav {
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+  }
+  .data-approval nav button {
+    min-width: 190px;
+  }
+  .mode-choice-panel {
+    grid-template-columns: 1fr;
+    margin: 24px 0;
+  }
+}
+
+/*
+ * A neutral explanation, not an error: it appears when the publish button is
+ * disabled because the endpoint is still empty. Styled apart from `.form-error`
+ * because nothing has gone wrong yet — the user simply hasn't filled the field
+ * that the placeholder makes look filled.
+ */
+.form-hint {
+  color: #4a5568;
+  background: #f4f6fa;
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+}
+
+/* Curated mode: needs-review semantic type queue */
+.semantic-review {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #f0d9a8;
+  border-radius: 10px;
+  background: #fdf7ea;
+}
+.semantic-review h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+.semantic-review .hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #6b6355;
+}
+.semantic-review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.semantic-review-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.semantic-review-list code {
+  background: #f3efe7;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.semantic-review-list .type-chip {
+  font-size: 12px;
+  color: #6b6355;
+  border: 1px solid #e6e0d4;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.semantic-review-list select {
+  margin-left: auto;
+  min-height: 30px;
+}
+.semantic-review-list em {
+  color: #6b6355;
+}
+
+/* AI suggestions on the needs-review queue */
+.suggest-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+}
+.ai-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #1d4ed8;
+  background: #e4eef9;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 2px 8px;
+  cursor: help;
+}
+.ai-suggestion button {
+  border: 0;
+  border-radius: 999px;
+  background: #2b6cb0;
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+/*
+ * The probe: run every published capability once and report what the upstream
+ * actually did. Styled as a panel rather than a toast because its findings are
+ * a list a host works through, not a status that flashes past.
+ */
+.probe-panel {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #d7e0ea;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.probe-results {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.probe-results li {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border-left: 3px solid #cbd5e1;
+  background: #fff;
+  font-size: 13px;
+}
+.probe-results li p {
+  margin: 4px 0 0;
+  color: #475569;
+  font-size: 12px;
+}
+/* A degraded capability answers and is still wrong, so it reads as a warning
+   rather than a success — the whole point of separating it from `ok`. */
+.probe-results li[data-status="ok"] {
+  border-left-color: #16a34a;
+}
+.probe-results li[data-status="degraded"] {
+  border-left-color: #d97706;
+}
+.probe-results li[data-status="failed"] {
+  border-left-color: #dc2626;
+}
+.probe-results li[data-status="skipped"] {
+  border-left-color: #94a3b8;
+}
+.depth-control {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.depth-control input {
+  display: block;
+  width: 80px;
+  margin: 4px 0;
+}
+.depth-control span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+/*
+ * Field-selection proposals. The "leave out" variant is deliberately quiet:
+ * a rejection the reviewer can see is useful, and a loud one would read as an
+ * instruction rather than as a suggestion they are free to ignore.
+ */
+.proposal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.proposal-actions button {
+  color: #2e4265;
+  background: white;
+  border: 1px solid #cbd6e6;
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.proposal-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.ai-suggestion.muted-suggestion {
+  color: #64748b;
+  background: #f1f5f9;
+  border-color: #dbe2ea;
+}
+
+/* The capability currently open in the editor.
+ *
+ * Distinct from `.included`, which means approved. Both can be true, and while
+ * the editor sits below a long list they were indistinguishable — a reviewer
+ * scrolled back up with no way to tell which card the panel belonged to. */
+.operation-row.editing {
+  border-color: #3855cf;
+  box-shadow: 0 0 0 2px rgba(56, 85, 207, 0.18);
+}
+
+.back-to-list {
+  margin-left: 10px;
+  padding: 2px 8px;
+  color: #3855cf;
+  background: white;
+  border: 1px solid #cbd5e4;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.back-to-list:hover {
+  border-color: #3855cf;
+}
+
+/* Bulk field controls. The list they sit above is hundreds of rows on a real
+ * schema, so they stick to the top of it rather than scrolling away. */
+.bulk-actions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  background: white;
+  border-bottom: 1px solid #eef1f7;
+}
+.bulk-actions button {
+  padding: 6px 10px;
+  color: #29384f;
+  background: white;
+  border: 1px solid #cbd5e4;
+  border-radius: 8px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.bulk-actions button:disabled {
+  color: #9aa6b8;
+  cursor: default;
+}
+.bulk-count {
+  font-weight: 700;
+  color: #29384f;
+}
+.bulk-note {
+  flex: 1 1 240px;
+  color: #5f6d83;
+  font-size: 0.82rem;
+}
+
+/* List and editor side by side, with the editor pinned.
+ *
+ * They used to stack, so the editor began after all 95 capability cards — about
+ * 7,000px down. Every remedy for that was a scroll, and a scroll is the wrong
+ * answer: it takes the reviewer off the list they are working through. Here the
+ * list scrolls under a stationary editor and neither ever has to move the other.
+ *
+ * Two columns only where there is room. Below that they stack, and the Configure
+ * button's scroll is what makes the editor reachable — which is why that scroll
+ * still exists, and why it checks visibility before firing. */
+@media (min-width: 1100px) {
+  .review-workspace {
+    /* `scrollIntoView` and anchor jumps land at y=0, which is underneath the
+     * sticky source-mode nav — so the panel headings were hidden the moment
+     * anything scrolled the workspace into place. */
+    scroll-margin-top: 66px;
+    display: grid;
+    /* The list is navigation: a checkbox, a name, a coordinate, a button. It
+     * held 543px of a 1440px screen while the editor — which carries 580 field
+     * rows — made do with 886. Capped rather than proportional, so the editor
+     * takes every pixel a wider monitor adds. */
+    grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+  .review-workspace > .configure-panel,
+  .review-workspace > .review-panel {
+    position: sticky;
+    /* Clear of the sticky source-mode nav (54px). At `top: 20px` both panels
+     * slid their own headings underneath it once the sticky engaged. */
+    top: 66px;
+    max-height: calc(100vh - 86px);
+    overflow-y: auto;
+  }
+  /* Redundant when the editor is always on screen, and it costs a line of
+   * vertical space in a panel that needs every one. */
+  .review-workspace .back-to-list {
+    display: none;
+  }
+  /* Keep name, badges and button on one line. The default grid reserves 280px
+   * for the name, which does not fit a 380px column — so everything wrapped and
+   * rows grew from 59px to 120px, halving what a reviewer can see. Letting the
+   * name shrink and truncate is the trade that keeps the row one line tall. */
+  .review-workspace .operation-main {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 7px 12px;
+  }
+  .review-workspace .operation-main strong {
+    font-size: 0.84rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .review-workspace .operation-main code {
+    font-size: 0.7rem;
+    margin-top: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Explicit placement. Auto-flow put the button on a third row of its own —
+   * label, badges, button — which is where 109px of a 59px row came from. */
+  .review-workspace .operation-main > label {
+    grid-row: 1;
+    grid-column: 1;
+  }
+  .review-workspace .configure-button {
+    grid-row: 1;
+    grid-column: 2;
+    align-self: center;
+  }
+  .review-workspace .operation-badges {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    gap: 4px;
+    font-size: 0.66rem;
+  }
+  /* A badge reading "supported" on 90 of 95 rows is not information, and it
+   * costs every one of them a second line. Unsupported still shows, because
+   * that one explains a checkbox the reviewer cannot tick. */
+  .review-workspace .operation-badges .badge.supported {
+    display: none;
+  }
+  .review-workspace .operation-badges:empty {
+    display: none;
+  }
+  /* Explanations belong in the editor, not in a navigation column. The reason
+   * an unsupported query cannot be included stays, because it is the one thing
+   * that explains a disabled checkbox. */
+  .review-workspace .operation-main > details {
+    display: none;
+  }
+  .review-workspace .configure-button {
+    padding: 4px 9px;
+    font-size: 0.76rem;
+  }
+  /* Everything above the first capability row is header, and it had grown to
+   * 779px of a 943px panel — three rows of ninety-five. The list is the panel's
+   * whole purpose; the header is what got trimmed.
+   *
+   * Only the rows scroll now, so the filter and the actions cannot scroll away
+   * from the thing they act on. */
+  .review-workspace > .configure-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 14px 0 0;
+  }
+  .review-workspace > .configure-panel > * {
+    flex: 0 0 auto;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .review-workspace > .configure-panel .operation-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .review-workspace > .configure-panel .step-heading {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  /* The panel is titled by its position in the flow; a paragraph explaining
+   * unsupported queries repeats what the unsupported badge already says. */
+  .review-workspace > .configure-panel .step-heading > div > p:last-child {
+    display: none;
+  }
+  /* "N selected · M technically supported" is what the count line under the
+   * filter now says, in a third of the height. The actions stay. */
+  .review-workspace > .configure-panel .approval-cart > strong,
+  .review-workspace > .configure-panel .approval-cart > span {
+    display: none;
+  }
+  .review-workspace > .configure-panel .approval-cart {
+    flex-direction: row;
+    gap: 8px;
+    padding: 0;
+    background: none;
+    color: inherit;
+  }
+  .review-workspace > .configure-panel .approval-cart button {
+    flex: 1 1 auto;
+    font-size: 0.78rem;
+  }
+  .review-workspace .catalog-form-details {
+    margin-bottom: 8px;
+  }
+  .review-workspace .catalog-form-details > summary {
+    padding: 7px 0;
+    color: #3855cf;
+    font-size: 0.82rem;
+    font-weight: 650;
+    cursor: pointer;
+  }
+  /* Stacked, not two-up: 380px cannot hold a label-and-input pair per column. */
+  .review-workspace .catalog-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The filter, which has to be reachable from anywhere in a list where only
+ * about a seventh of the rows are on screen at once. */
+.list-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  margin-bottom: 4px;
+  background: white;
+  border-bottom: 1px solid #eef1f7;
+}
+.list-filter {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 8px 10px;
+  color: #29384f;
+  border: 1px solid #cbd5e4;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.list-filter:focus {
+  outline: 2px solid #3855cf;
+  outline-offset: 1px;
+}
+.list-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #5f6d83;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.list-toggle input {
+  accent-color: #3855cf;
+}
+.list-count {
+  flex: 1 1 100%;
+  margin: 0;
+  order: 3;
+  color: #5f6d83;
+  font-size: 0.8rem;
+}
+.list-count strong {
+  color: #29384f;
+}
+
+/* The capability currently open in the editor.
+ *
+ * Distinct from `.included`, which means approved. Both can be true, and while
+ * the editor sits below a long list they were indistinguishable — a reviewer
+ * scrolled back up with no way to tell which card the panel belonged to. */
+.operation-row.editing {
+  border-color: #3855cf;
+  box-shadow: inset 3px 0 0 #3855cf, 0 0 0 2px rgba(56, 85, 207, 0.18);
+}
+
+.back-to-list {
+  margin-left: 10px;
+  padding: 2px 8px;
+  color: #3855cf;
+  background: white;
+  border: 1px solid #cbd5e4;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.back-to-list:hover {
+  border-color: #3855cf;
+}
+
+/* Bulk field controls. The list they sit above is hundreds of rows on a real
+ * schema, so they stick to the top of it rather than scrolling away. */
+.bulk-actions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  background: white;
+  border-bottom: 1px solid #eef1f7;
+}
+.bulk-actions button {
+  padding: 6px 10px;
+  color: #29384f;
+  background: white;
+  border: 1px solid #cbd5e4;
+  border-radius: 8px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.bulk-actions button:disabled {
+  color: #9aa6b8;
+  cursor: default;
+}
+.bulk-count {
+  font-weight: 700;
+  color: #29384f;
+}
+.bulk-note {
+  flex: 1 1 240px;
+  color: #5f6d83;
+  font-size: 0.82rem;
+}

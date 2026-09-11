@@ -1,0 +1,109 @@
+# Build and publish the documentation site to GitHub Pages.
+#
+# The site renders `docs/` in place rather than owning a copy, so a change to a
+# guide is a change to the site: both paths below trigger this, and neither is
+# optional. `website/` is deliberately outside the pnpm workspace — its
+# dependency tree has no business in `pnpm check`, in turbo, or in the lockstep
+# version assertion — which is why this installs separately, with
+# `--ignore-workspace`, and why `pnpm install --frozen-lockfile` at the root
+# would not install it.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "website/**"
+      - ".github/workflows/pages.yml"
+  # The site is validated on the pull request, not after it lands. Without this
+  # the only check runs post-merge, and `onBrokenAnchors: "throw"` makes that a
+  # live risk rather than a theoretical one: renaming a heading that another
+  # guide deep-links to breaks the build, and a docs PR doing exactly that would
+  # pass its own CI and fail on main.
+  #
+  # The two path lists are duplicated on purpose: GitHub Actions does not expand
+  # YAML anchors, so a `&anchor`/`*alias` pair here parses in every local YAML
+  # tool and silently does nothing on GitHub. Keep them in step by hand.
+  pull_request:
+    paths:
+      - "docs/**"
+      - "website/**"
+      - ".github/workflows/pages.yml"
+  # So the site can be republished without an empty commit — after the repository
+  # is made public, for instance.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and never cancel one midway: a half-finished deploy is a
+# half-published site. A queued run supersedes an earlier queued run only.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          version: 10.20.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile --ignore-workspace
+
+      # `docusaurus build` compiles TSX through Babel, which strips types without
+      # checking them — a type error in the landing page builds and deploys
+      # perfectly happily. Nothing else covers this directory either: the root
+      # `pnpm lint` excludes `website/**` precisely because this runs here. It is
+      # the only thing standing between the site's TSX and no checking at all,
+      # and it belongs before the build so it fails on the cheaper step.
+      - run: pnpm typecheck
+
+      # `prebuild` asserts every guide in docs/ is in the sidebar. The build
+      # itself throws on broken links and anchors, so a guide that renames a
+      # heading another guide links to fails here.
+      - run: pnpm build
+
+      # Only the deploying run needs an artifact; a pull request just needs to
+      # know the site still builds.
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: website/build
+
+  deploy:
+    needs: build
+    # Gated on a repository variable, not merely on the branch.
+    #
+    # GitHub Pages serves this only once the repository is public and Pages is
+    # switched on. Until then `deploy-pages` fails, and a workflow that is red on
+    # every push to main for a known reason teaches everyone to ignore a red
+    # main. A skipped job is grey and says the same thing without the noise.
+    #
+    # To go live: make the repository public, set Settings → Pages → Source to
+    # "GitHub Actions", then add repository variable PAGES_ENABLED = true
+    # (Settings → Secrets and variables → Actions → Variables). Re-run this
+    # workflow from the Actions tab; no commit needed.
+    if: github.event_name != 'pull_request' && vars.PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

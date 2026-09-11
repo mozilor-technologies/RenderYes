@@ -1,0 +1,89 @@
+# CI for the RenderYes workspace.
+#
+# Two jobs on purpose: `check` proves the source is sound, `smoke-install`
+# proves the packed artifacts are. They fail for different reasons and have
+# different owners, so keeping them apart makes a red run legible at a glance.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The workflow only ever reads the repository. Anything that needs more should
+# say so in its own job rather than widening the default for everything.
+permissions:
+  contents: read
+
+# A newer push to the same branch makes an in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to a full commit SHA, not a tag: a tag is mutable and
+      # a compromised one would run arbitrary code with this token. The trailing
+      # comment is the human-readable version that SHA carries.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          # Must match `packageManager` in package.json.
+          version: 10.20.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          # 22 is the supported floor — see engines.node. Lowering it means
+          # pinning jsdom and undici back, not just changing this number.
+          node-version: 22
+          cache: pnpm
+
+      # `--frozen-lockfile` fails rather than silently resolving a different
+      # tree than the one committed, which is the whole point of running CI.
+      - run: pnpm install --frozen-lockfile
+
+      # Cheap, and it fails on the bump commit rather than during the release
+      # it would break.
+      - run: pnpm check:versions
+
+      # Separate steps so a failure names the stage instead of one opaque exit —
+      # the same stages `pnpm check` runs locally, so a green local run means a
+      # green CI run.
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+
+  # What this covers is what the job above cannot: every check there runs inside
+  # the workspace, where pnpm links `workspace:*` to source and an import
+  # resolves whether or not the package would survive being packed. This installs
+  # the tarballs into scratch directories under both npm and pnpm and serves a
+  # request through them, which is what catches an export left out of `files`, a
+  # `workspace:*` rewrite that 404s, and a package-manager-specific install path.
+  #
+  # Only this job is matrixed: it installs the packed tarballs without
+  # touching jsdom, so it is what proves the range in `engines.node`.
+  smoke-install:
+    runs-on: ubuntu-latest
+    strategy:
+      # Which versions break is the information this matrix produces.
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          version: 10.20.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm smoke:install

@@ -142,15 +142,32 @@ Maintainers only. All eleven public packages release together at one version —
 `.changeset/config.json` fixes them into a single group, and `pnpm check` fails
 if they ever disagree.
 
+The version bump goes through a pull request like any other change, and the tag
+goes on the commit that merge produces.
+
 ```bash
+git switch -c release/X.Y.Z
 pnpm changeset version   # consumes the pending changesets, bumps all eleven
 pnpm install             # refreshes the lockfile after the bumps
 pnpm check
 git commit -am "Release X.Y.Z"
-git tag vX.Y.Z && git push --follow-tags
+git push -u origin release/X.Y.Z
 ```
 
-The tag triggers `.github/workflows/release.yml`, which re-runs `pnpm check` and
-`pnpm smoke:install` before publishing and waits for an approval on the `release`
-environment. A tag that disagrees with the manifests fails there rather than
-publishing — versions cannot be reused, so the gate is worth the wait.
+Open the pull request, get it reviewed, and squash-merge it. Then tag what
+landed:
+
+```bash
+git fetch origin
+git tag vX.Y.Z origin/main
+git push origin vX.Y.Z
+```
+
+Tagging `origin/main` rather than a local branch is what keeps the tag pointing
+at the commit that is actually on `main` — a squash merge rewrites the commit,
+so a tag made before the merge points at a commit no branch contains.
+
+The tag triggers `.github/workflows/release.yml`, which waits for an approval on
+the `release` environment, then re-runs `pnpm check` and `pnpm smoke:install`
+before publishing. A tag that disagrees with the manifests fails there rather
+than publishing — versions cannot be reused, so the gate is worth the wait.

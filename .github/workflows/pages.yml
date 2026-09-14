@@ -95,10 +95,8 @@ jobs:
     # every push to main for a known reason teaches everyone to ignore a red
     # main. A skipped job is grey and says the same thing without the noise.
     #
-    # To go live: make the repository public, set Settings → Pages → Source to
-    # "GitHub Actions", then add repository variable PAGES_ENABLED = true
-    # (Settings → Secrets and variables → Actions → Variables). Re-run this
-    # workflow from the Actions tab; no commit needed.
+    # PAGES_ENABLED is set once, after Settings → Pages → Source is switched to
+    # "GitHub Actions" (Settings → Secrets and variables → Actions → Variables).
     if: github.event_name != 'pull_request' && vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment:

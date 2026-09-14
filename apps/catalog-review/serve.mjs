@@ -3,27 +3,22 @@
  * Serves the built review UI on localhost and proxies its API calls to an
  * RenderYes host.
  *
- * The review UI was a Vite app inside this repo, so producing a first catalog
- * required cloning the monorepo and knowing which workspace command to run.
- * Every host who wanted one either did that or wrote their own publisher — the
- * Saleor integration did the latter, against a format that will drift the
- * moment we change it, silently, because nothing validates a catalog built
- * outside our tooling.
+ * Shipped as a binary so a host can produce a first catalog with `npx`, without
+ * cloning this repository. A catalog built outside this tooling is validated by
+ * nothing and drifts silently as the format changes.
  *
  * A static server rather than an entry in `@renderyes/server`: a production
  * server has no business shipping browser assets for a build-time GUI, and a
  * host running the review app is doing onboarding work, not serving traffic.
  *
- * The UI fetches same-origin /api/* routes that only exist on a host, so the
- * static-only version of this file left registry consumers with a UI that
- * could browse but never publish — the SPA fallback answered those fetches
- * with index.html and a 200, and the UI died parsing HTML as JSON. This file
- * used to refuse all configurability as a security stance; the proxy
- * deliberately relaxes that, within limits: still bound to 127.0.0.1, only a
- * fixed allowlist of routes is forwarded, and the admin credential lives in
- * this process so the browser never sees it. The token comes from the
- * environment only — a CLI flag would leave it in argv, ps output, and shell
- * history.
+ * The UI fetches same-origin /api/* routes that only exist on a host, so this
+ * server proxies them. Serving static files alone answers those fetches with
+ * index.html and a 200, and the UI fails parsing HTML as JSON.
+ *
+ * The proxy is configurable within limits: bound to 127.0.0.1, only a fixed
+ * allowlist of routes is forwarded, and the admin credential lives in this
+ * process so the browser never sees it. The token comes from the environment
+ * only — a CLI flag would leave it in argv, ps output, and shell history.
  */
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";

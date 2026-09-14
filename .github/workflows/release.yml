@@ -5,14 +5,13 @@
 # dependency to that version as it packs. Publishing the packages individually
 # with `npm publish` would ship `workspace:*` verbatim and 404 on install.
 #
-# ── Moving to trusted publishing (OIDC), later ────────────────────────────────
-# The goal is no long-lived NPM_TOKEN in repository secrets. It is not possible
-# for the FIRST release: a trusted publisher is registered in a package's own
-# settings on npmjs.com, and until a package is published it has no settings.
-# So: publish once with a token, then switch. The switch needs
+# ── Moving to trusted publishing (OIDC) ───────────────────────────────────────
+# The goal is no long-lived NPM_TOKEN in repository secrets. 0.1.0 was published
+# with a token, so every package now has settings a trusted publisher can be
+# registered in. The switch needs
 #   * pnpm >= 11.0.7 (OIDC applies per package during a recursive publish) and
 #     Node >= 22.14.0 — the Node side is already met (this repository builds on
-#     Node 22), so only pnpm 10.20.0 moves, and `packageManager` moves with it;
+#     Node 22), so only pnpm moves, and `packageManager` moves with it;
 #   * `id-token: write` on this job (already set below, harmless until used);
 #   * each of the eleven packages registered on npmjs.com with this repository
 #     and the workflow filename `release.yml`. Every field is case-sensitive.

@@ -1,6 +1,6 @@
 {
   "name": "@renderyes/react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The single package a host frontend installs: provider, launcher, isolated surface, and host-component registration.",
   "license": "MIT",
   "publishConfig": { "access": "public" },

@@ -1,6 +1,6 @@
 {
   "name": "@renderyes/generate",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Dev-time CLI that has an LLM draft a bespoke, host-styled component from the approved data contract, verifies it mechanically, and emits a reviewable diff.",
   "license": "MIT",
   "publishConfig": { "access": "public" },

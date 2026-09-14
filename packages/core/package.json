@@ -1,6 +1,6 @@
 {
   "name": "@renderyes/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "RenderYes plan, registry, validation, migration, and A2UI interoperability.",
   "license": "MIT",
   "publishConfig": { "access": "public" },

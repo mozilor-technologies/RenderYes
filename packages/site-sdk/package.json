@@ -1,6 +1,6 @@
 {
   "name": "@renderyes/site-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Customer site, surface, component, theme, and A2UI registration SDK for RenderYes.",
   "license": "MIT",
   "publishConfig": { "access": "public" },

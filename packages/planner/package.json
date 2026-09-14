@@ -1,6 +1,6 @@
 {
   "name": "@renderyes/planner",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Provider-neutral Plan 3.1 composition for RenderYes.",
   "license": "MIT",
   "publishConfig": { "access": "public" },

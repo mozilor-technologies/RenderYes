@@ -1,6 +1,6 @@
 {
   "name": "@renderyes/server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The backend a host runs: catalog/UI registries and the /compose pipeline behind @renderyes/react.",
   "license": "MIT",
   "publishConfig": { "access": "public" },

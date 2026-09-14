@@ -1,6 +1,6 @@
 {
   "name": "@renderyes/capability-catalog",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Portable capability catalog contracts and onboarding helpers for RenderYes.",
   "license": "MIT",
   "publishConfig": { "access": "public" },

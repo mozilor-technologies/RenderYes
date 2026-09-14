@@ -1,6 +1,6 @@
 {
   "name": "@renderyes/starter-catalog",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A small catalog of reusable host components \u2014 data table, metric card, card grid, detail panel \u2014 matched to data by shape rather than by host-specific type, with loading/empty/error and provenance handling built in.",
   "license": "MIT",
   "publishConfig": { "access": "public" },

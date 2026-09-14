@@ -52,7 +52,7 @@
     "@renderyes/site-sdk": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.5.1",
     "@renderyes/starter-catalog": "workspace:*"
   }
 }

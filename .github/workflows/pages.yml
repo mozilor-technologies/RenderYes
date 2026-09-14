@@ -4,9 +4,15 @@
 # guide is a change to the site: both paths below trigger this, and neither is
 # optional. `website/` is deliberately outside the pnpm workspace — its
 # dependency tree has no business in `pnpm check`, in turbo, or in the lockstep
-# version assertion — which is why this installs separately, with
-# `--ignore-workspace`, and why `pnpm install --frozen-lockfile` at the root
-# would not install it.
+# version assertion — so it installs separately here, and a root
+# `pnpm install` does not reach it.
+#
+# It is its own pnpm root rather than an `--ignore-workspace` install of a
+# directory inside one. That flag skips `pnpm-workspace.yaml` entirely, and from
+# pnpm 11 the build-script approvals live in that file, so the flag made them
+# unreadable and the install refused to proceed. `website/pnpm-workspace.yaml`
+# declares an empty `packages` list, which stops pnpm walking up to the
+# monorepo, and carries the approvals.
 name: pages
 
 on:
@@ -56,7 +62,7 @@ jobs:
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
-          version: 10.20.0
+          version: 11.27.0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -64,7 +70,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: website/pnpm-lock.yaml
 
-      - run: pnpm install --frozen-lockfile --ignore-workspace
+      - run: pnpm install --frozen-lockfile
 
       # `docusaurus build` compiles TSX through Babel, which strips types without
       # checking them — a type error in the landing page builds and deploys

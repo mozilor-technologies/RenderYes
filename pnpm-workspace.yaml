@@ -1,3 +1,15 @@
 packages:
   - "packages/*"
   - "apps/*"
+
+# Which dependencies may run a build script at install time. pnpm 11 refuses an
+# install that leaves this undecided, and reads it here rather than from the
+# `pnpm.onlyBuiltDependencies` block in package.json, which it now ignores.
+#
+# `false` is a decision, not a gap: unrs-resolver has never been approved here,
+# so its script has never run, ESLint's import resolver uses its JavaScript
+# implementation, and `pnpm check` is clean. Flipping it to `true` starts
+# running install-time code this repository never has.
+allowBuilds:
+  esbuild: true
+  unrs-resolver: false

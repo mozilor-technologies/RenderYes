@@ -1,0 +1,11 @@
+# The documentation site is its own pnpm root, deliberately outside the
+# workspace at the repository root: Docusaurus's dependency tree has no business
+# in `pnpm check`, in turbo, or in the lockstep version assertion. Declaring an
+# empty `packages` list is what makes this directory a root in its own right,
+# so pnpm stops here instead of walking up and adopting the monorepo.
+packages: []
+
+# pnpm 11 refuses an install that leaves a dependency's build script undecided.
+# core-js's postinstall only prints a funding notice, so it is declined.
+allowBuilds:
+  core-js: false

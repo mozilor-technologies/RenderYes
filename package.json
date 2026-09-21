@@ -25,13 +25,13 @@
     "outcome:report": "node scripts/compose-outcome-report.mjs"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.2",
-    "eslint": "^9.39.5",
+    "@changesets/cli": "^3.0.3",
+    "eslint": "^10.11.0",
     "eslint-plugin-import-x": "^4.17.1",
-    "prettier": "^3.9.6",
-    "turbo": "^2.1.0",
-    "typescript": "^5.6.0",
-    "typescript-eslint": "^8.66.0",
-    "vitest": "^2.1.0"
+    "prettier": "^3.9.8",
+    "turbo": "^2.11.2",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.1"
   }
 }

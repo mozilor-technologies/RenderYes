@@ -9,6 +9,7 @@ import {
   type SurfaceNode,
   type PlanV3_1,
   type PlanProvider,
+  type PlanProviderRequest,
 } from "@renderyes/core";
 import { validateDataRequestQuery } from "@renderyes/data-runtime";
 import {
@@ -59,6 +60,52 @@ export interface ComposeDataPlanInput {
 export interface DataPlanIssue {
   path: string;
   message: string;
+}
+
+/**
+ * What this call is planning, stated as data rather than prose.
+ *
+ * A provider used to receive only the rendered contract — a system prompt and
+ * a JSON Schema — and the visitor's words already folded into a user prompt
+ * that may also carry a previous plan or a repair transcript. That is the
+ * right input for a language model and useless to anything else: a
+ * deterministic classifier cannot read the capability list back out of a
+ * paragraph, and cannot tell a first attempt from a repair. This block states
+ * those facts once, alongside the prompts, so a provider that does not read
+ * prose can still decide — and one that does can ignore it.
+ *
+ * Nothing here widens what a provider may see. The manifest is the same
+ * planner-safe projection the system prompt was rendered from (no session
+ * keys, no endpoints, no rows), and the site is the component contract the
+ * schema was compiled from.
+ */
+export interface PlanningContext {
+  /** The visitor's own words, before any revision or repair framing. */
+  prompt: string;
+  surfaceId: string;
+  /**
+   * `initial` — a fresh compose. `revision` — the prompt changes a plan already
+   * on screen. `clarification-answer` — the prompt answers a question the
+   * planner asked. `repair` — the previous draft failed validation and the user
+   * prompt now carries the issues.
+   */
+  stage: "initial" | "revision" | "clarification-answer" | "repair";
+  /** 0 on the first attempt; 1+ on repair attempts. */
+  attempt: number;
+  /** The planner-safe manifest the contract was built from. */
+  plannerManifest: PlannerManifest;
+  /**
+   * The capability ids the contract actually advertises after surface scoping,
+   * sorted. A capability outside this list cannot be bound on this surface.
+   */
+  capabilityIds: readonly string[];
+  /** The registered site whose components the contract offers. */
+  site: RegisteredSite;
+}
+
+/** The request `composeDataPlan` hands a provider: the core shape plus the planning context. */
+export interface DataPlanProviderRequest extends PlanProviderRequest {
+  planning: PlanningContext;
 }
 
 export type ComposeDataPlanResult =
@@ -197,12 +244,29 @@ export async function composeDataPlan(
       };
     }
     let completion: Awaited<ReturnType<PlanProvider["generatePlan"]>>;
+    const request: DataPlanProviderRequest = {
+      systemPrompt: contract.systemPrompt,
+      userPrompt,
+      jsonSchema: contract.jsonSchema,
+      planning: {
+        prompt: input.prompt,
+        surfaceId: input.surfaceId,
+        stage:
+          attempt > 0
+            ? "repair"
+            : input.previousPlan
+              ? "revision"
+              : input.allowClarification === false
+                ? "clarification-answer"
+                : "initial",
+        attempt,
+        plannerManifest: input.plannerManifest,
+        capabilityIds: contract.capabilityIds,
+        site: input.site,
+      },
+    };
     try {
-      completion = await input.provider.generatePlan({
-        systemPrompt: contract.systemPrompt,
-        userPrompt,
-        jsonSchema: contract.jsonSchema,
-      });
+      completion = await input.provider.generatePlan(request);
     } catch {
       lastFailureKind = "provider-error";
       lastIssues = [

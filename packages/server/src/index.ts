@@ -59,14 +59,24 @@ import {
   createModelPlanProvider,
   createScriptedPlanProvider,
   isScriptedProvider,
+  isSystemOneProvider,
   providerDiagnostic,
+  providerHasCredentials,
   type ModelProviderConfig,
   type ScriptedProviderConfig,
+  type SystemOneProviderConfig,
 } from "./providers.js";
+import { createSystemOnePlanProvider, type SystemOneClassification } from "./system-one.js";
+import type { PlanningContext } from "@renderyes/planner";
 
 export {
+  DEFAULT_SYSTEM_ONE_REFUSAL_THRESHOLD,
+  DEFAULT_SYSTEM_ONE_THRESHOLD,
+  DEFAULT_SYSTEM_ONE_THRESHOLD_WITH_FALLBACK,
+  DEFAULT_SYSTEM_ONE_TIMEOUT_MS,
   createModelPlanProvider,
   createScriptedPlanProvider,
+  isSystemOneProvider,
   jsonModeSystemPrompt,
   oversizedParamsSchemas,
   providerDiagnostic,
@@ -76,7 +86,25 @@ export {
   type ModelProviderConfig,
   type OversizedParamsSchema,
   type ScriptedProviderConfig,
+  type SystemOneProviderConfig,
 } from "./providers.js";
+export {
+  askSystemOne,
+  buildSystemOneDraft,
+  buildSystemOneQuestions,
+  createSystemOnePlanProvider,
+  guardPrompt,
+  routeSystemOne,
+  systemOneRefusalReason,
+  type SystemOneClassification,
+  type SystemOneDecision,
+  type SystemOneDraft,
+  type SystemOneGuard,
+  type SystemOnePath,
+  type SystemOneReason,
+  type SystemOneRoute,
+} from "./system-one.js";
+export type { PlanningContext } from "@renderyes/planner";
 
 import { createMemoryViewStore, type SavedView, type ViewStore } from "./views.js";
 import { slicePlanToNodes } from "./slice.js";
@@ -176,15 +204,30 @@ export interface PlanProviderResult {
    * silent. Optional: a custom provider that doesn't know must not guess.
    */
   constrainedDecoding?: boolean;
+  /**
+   * The System One decision this result was routed by, when a
+   * `SystemOneProviderConfig` produced it. Read at the server's observation
+   * point and emitted as a `classify` event; never part of the plan.
+   */
+  classification?: SystemOneClassification;
+}
+
+export interface PlanProviderRequest {
+  systemPrompt: string;
+  userPrompt: string;
+  jsonSchema: unknown;
+  /**
+   * What is being planned, as data: the visitor's own prompt, the stage
+   * (initial, revision, repair), the planner-safe manifest and the site.
+   * Supplied on every request `composeDataPlan` makes; a provider that reads
+   * prose can ignore it, and one that cannot — System One — depends on it.
+   */
+  planning?: PlanningContext;
 }
 
 export interface PlanProvider {
   id: string;
-  generatePlan(request: {
-    systemPrompt: string;
-    userPrompt: string;
-    jsonSchema: unknown;
-  }): Promise<PlanProviderResult>;
+  generatePlan(request: PlanProviderRequest): Promise<PlanProviderResult>;
 }
 
 export interface GraphQlHostRequestContext<Session> {
@@ -263,8 +306,17 @@ export interface ViewServerConfig<Session> {
    * A `ScriptedProviderConfig` — `{id, plans}` — is the supported way to run
    * the pipeline without a model. The plans are the host's own, so a pass says
    * something about the install rather than about our guess.
+   *
+   * A `SystemOneProviderConfig` — `{id, url, model, …}` — puts the typed
+   * decision model in front: confident single-capability prompts are planned
+   * from the catalog in a few hundred milliseconds with no language model,
+   * and everything else goes to its `fallback` or is refused with a reason.
    */
-  planProviders?: readonly (ModelProviderConfig | ScriptedProviderConfig)[];
+  planProviders?: readonly (
+    | ModelProviderConfig
+    | ScriptedProviderConfig
+    | SystemOneProviderConfig
+  )[];
   /**
    * Called once per `composeAgainstPublishedCatalogs`, on success and on
    * failure alike. The host decides where this goes — a JSONL file, stdout, a
@@ -2003,11 +2055,21 @@ export function createViewServer<Session>(
         ? // Named as what it is. A scripted provider reported as an available
           // model is the mock's own failure mode rebuilt one level up.
           { id: provider.id, model: "scripted", available: provider.plans.length > 0 }
-        : {
-            id: provider.id,
-            model: provider.model,
-            available: Boolean(process.env[provider.apiKeyEnv]),
-          },
+        : isSystemOneProvider(provider)
+          ? // The decision model, named with its fallback where one is wired,
+            // so a report never mistakes a classifier for a language model.
+            {
+              id: provider.id,
+              model: provider.fallback
+                ? `system-one:${provider.model}+${provider.fallback.model}`
+                : `system-one:${provider.model}`,
+              available: providerHasCredentials(provider),
+            }
+          : {
+              id: provider.id,
+              model: provider.model,
+              available: Boolean(process.env[provider.apiKeyEnv]),
+            },
     );
   }
 
@@ -2022,7 +2084,9 @@ export function createViewServer<Session>(
       provider.id,
       isScriptedProvider(provider)
         ? createScriptedPlanProvider(provider)
-        : createModelPlanProvider(provider),
+        : isSystemOneProvider(provider)
+          ? createSystemOnePlanProvider(provider)
+          : createModelPlanProvider(provider),
     ]),
   );
 
@@ -2077,6 +2141,25 @@ export function createViewServer<Session>(
                 }
               : {}),
           });
+          // The decision that routed this attempt, as its own span under the
+          // same trace. Emitted here rather than inside the provider for the
+          // same reason the plan event is: this is the one point every path
+          // passes, and it is the only place the trace id is known.
+          if (result.classification) {
+            emitModelCall({
+              operation: "classify",
+              traceId: context.traceId,
+              providerId: provider.id,
+              modelId: result.classification.modelId,
+              attempt,
+              startedAt,
+              durationMs: result.classification.durationMs,
+              outcome: result.classification.outcome,
+              ...(result.classification.error ? { error: result.classification.error } : {}),
+              ...(context.catalogId ? { catalogId: context.catalogId } : {}),
+              classification: result.classification,
+            });
+          }
           return result;
         } catch (cause) {
           emitModelCall({
@@ -2215,11 +2298,7 @@ export function createViewServer<Session>(
       // here: a configured provider whose key is unset is the single most
       // likely reason someone is reading this report.
       providersWithCredentials: (config.planProviders ?? [])
-        .filter((provider) =>
-          isScriptedProvider(provider)
-            ? provider.plans.length > 0
-            : Boolean(process.env[provider.apiKeyEnv]),
-        )
+        .filter(providerHasCredentials)
         .map((provider) => provider.id),
     };
   }
@@ -3091,6 +3170,26 @@ export function createViewServer<Session>(
     const contract = createDataPlanningContract(registered.plannerManifest);
     const planProvider = resolvePlanProvider(providerId, createProvider, catalogId);
 
+    // This route plans data only, with no surface, so the context it can
+    // state is the whole manifest and the site's first surface when a UI
+    // catalog is published. A provider that needs more (System One) says so.
+    const registeredSite = uiStore.get(catalogId)?.site;
+    const firstSurfaceId = registeredSite?.surfaces[0]?.id;
+    const planning: PlanningContext | undefined =
+      registeredSite && firstSurfaceId
+        ? {
+            prompt,
+            surfaceId: firstSurfaceId,
+            stage: "initial",
+            attempt: 0,
+            plannerManifest: registered.plannerManifest,
+            capabilityIds: registered.plannerManifest.capabilities
+              .map((capability) => capability.id)
+              .sort(),
+            site: registeredSite,
+          }
+        : undefined;
+
     // Traced too. `planAgainstPublishedCatalog` is a smaller path than
     // compose, but it is still a real model call someone is paying for — a
     // model call that does not appear in the traces is worse than no traces,
@@ -3103,6 +3202,7 @@ export function createViewServer<Session>(
       systemPrompt: contract.systemPrompt,
       userPrompt: prompt,
       jsonSchema: contract.jsonSchema,
+      ...(planning ? { planning } : {}),
     });
 
     const draft = assertRecord(completion.value, "Provider output");
@@ -3332,9 +3432,14 @@ export function createViewServer<Session>(
               // A scripted provider has no model, and its plans are its
               // identity: two scripts under one id are two different planners
               // as far as a cached plan is concerned.
-              return isScriptedProvider(configured)
-                ? `scripted:${configured.plans.length}`
-                : configured.model;
+              if (isScriptedProvider(configured)) return `scripted:${configured.plans.length}`;
+              // The fast path and its fallback are one planner as far as a
+              // cached plan is concerned: both write plans the same catalog
+              // validated, under one id.
+              if (isSystemOneProvider(configured)) {
+                return `system-one:${configured.model}+${configured.fallback?.model ?? "none"}`;
+              }
+              return configured.model;
             })()}`,
           })
         : undefined;

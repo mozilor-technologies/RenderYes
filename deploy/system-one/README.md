@@ -232,6 +232,16 @@ Measure before trusting any of these on your own catalog: `shadow: true`
 records the decision beside the language model's plan without changing what
 visitors see.
 
+## Fine-tuning on your own prompts
+
+Optional, and most hosts will not need it: the checkpoint already generalises
+to catalogs it has never seen. When shadow mode shows it reads your catalog's
+vocabulary poorly, [`TRAINING.md`](TRAINING.md) walks through writing labelled
+prompts, converting them with `prepare_training_data.py`, training with
+`train.sh` from this checkpoint, and redeploying. `systemone_questions.py` is
+the shared question builder both the probe and the converter use; it mirrors
+the server's and is checked against `fixtures/questions.json`.
+
 ## Licensing
 
 | Component                                                             | Licence                              |

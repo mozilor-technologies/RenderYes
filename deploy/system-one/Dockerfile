@@ -23,7 +23,7 @@ COPY requirements.txt ./
 RUN pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 \
  && pip install -r requirements.txt
 
-COPY --chmod=0755 entrypoint.sh probe.py ./
+COPY --chmod=0755 entrypoint.sh probe.py systemone_questions.py ./
 
 # laya-serve configuration. Every LAYA_* variable can be overridden at run
 # time; these are the defaults a CPU host wants.

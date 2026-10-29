@@ -98,7 +98,8 @@ describe("hook field reachability", () => {
     const exempt = new Set(HOST_ONLY_HOOK_FIELDS);
 
     const unreachable = hookFields().filter(
-      (fieldName) => !exempt.has(fieldName) && !new RegExp(`\\b${fieldName}\\b`).test(source),
+      (fieldName) =>
+        !exempt.has(fieldName) && !new RegExp(`\\b${fieldName}\\b`).test(source),
     );
 
     expect(unreachable).toEqual([]);
@@ -127,7 +128,9 @@ describe("hook field reachability", () => {
     // A renamed or removed field leaving its exemption behind, which would
     // silently weaken the first assertion for whatever takes its name next.
     const returned = new Set(hookFields());
-    const orphaned = HOST_ONLY_HOOK_FIELDS.filter((fieldName) => !returned.has(fieldName));
+    const orphaned = HOST_ONLY_HOOK_FIELDS.filter(
+      (fieldName) => !returned.has(fieldName),
+    );
     expect(orphaned).toEqual([]);
   });
 });
@@ -163,6 +166,9 @@ describe("hook composition", () => {
     expect(sessionOnly).toEqual([
       "answerClarification",
       "busy",
+      // The capability-id answer to a question with candidates; session-owned
+      // like `answerClarification`, since it composes.
+      "chooseCandidate",
       "clarification",
       "error",
       "errorKind",
@@ -219,9 +225,14 @@ describe("hook composition", () => {
       </ViewProvider>,
     );
 
-    for (const [name, narrow] of [["useSavedViews", saved], ["usePanelOrder", panels]] as const) {
+    for (const [name, narrow] of [
+      ["useSavedViews", saved],
+      ["usePanelOrder", panels],
+    ] as const) {
       for (const field of Object.keys(narrow)) {
-        expect(narrow[field], `${name}.${field} is not the session's own`).toBe(wide[field]);
+        expect(narrow[field], `${name}.${field} is not the session's own`).toBe(
+          wide[field],
+        );
       }
     }
   });

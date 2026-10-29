@@ -51,6 +51,7 @@ import {
 } from "@renderyes/planner";
 import {
   diffDataModel,
+  type ClarificationCandidate,
   type ComposeEvent,
   type DataRequestState,
 } from "@renderyes/core";
@@ -94,8 +95,12 @@ export {
   buildSystemOneQuestions,
   createSystemOnePlanProvider,
   guardPrompt,
+  routeChosenCapability,
   routeSystemOne,
+  systemOneCandidates,
   systemOneRefusalReason,
+  SYSTEM_ONE_CLARIFICATION_QUESTION,
+  type SystemOneCandidate,
   type SystemOneClassification,
   type SystemOneDecision,
   type SystemOneDraft,
@@ -1026,6 +1031,13 @@ export type ComposeResult =
       question?: string;
       /** Two to four suggested answers, when the question has a closed set. */
       options?: readonly string[];
+      /**
+       * Present when the question is "which approved capability did you
+       * mean": the System One planner's uncertain band, in model-only mode.
+       * Compose the same prompt again with `capabilityId` set to one of these
+       * to answer — that compose makes no model call.
+       */
+      candidates?: readonly ClarificationCandidate[];
       issues: DataPlanIssue[];
       /**
        * Set when a failed *revision* fell back to the view the visitor already
@@ -1539,6 +1551,20 @@ export interface ViewServer<Session> {
      * makes a second turn feel like a conversation rather than a reset.
      */
     previousPlanId?: string;
+    /**
+     * True when this prompt carries the answer to a question the planner
+     * asked; removes the question branch from the contract for this call.
+     */
+    answersClarification?: boolean;
+    /**
+     * The capability the visitor picked from a clarification's `candidates`.
+     * Must name a capability the published catalog holds — anything else is
+     * rejected before any planning. The prompt is composed again with that
+     * capability fixed: a System One planner builds the view from the catalog
+     * with no model call, and a language model is told which capability to
+     * use. Implies `answersClarification`.
+     */
+    capabilityId?: string;
     /**
      * Observes the compose as it runs. Changes nothing about what the compose
      * does or returns — a transport that streams folds these events into a
@@ -3298,6 +3324,7 @@ export function createViewServer<Session>(
     uiCatalogId,
     previousPlanId,
     answersClarification,
+    capabilityId: chosenCapabilityId,
     onEvent,
     runId,
   }: {
@@ -3328,6 +3355,13 @@ export function createViewServer<Session>(
      * the visitor is in a loop whose only exit is reloading the page.
      */
     answersClarification?: boolean;
+    /**
+     * The capability the visitor picked from a clarification's candidates.
+     * Checked against the published catalog here, before anything is planned;
+     * a pick the catalog does not hold is rejected rather than passed to a
+     * planner to reason about. Implies `answersClarification`.
+     */
+    capabilityId?: string;
     /**
      * Receives progress events as the compose runs. Supplying it changes what
      * the caller *observes*, never what the compose does or returns: the batch
@@ -3380,6 +3414,23 @@ export function createViewServer<Session>(
     if (!resolvedSurfaceId || !site.getSurface(resolvedSurfaceId)) {
       throw new Error(`Site "${catalogId}" has no surface "${resolvedSurfaceId ?? ""}"`);
     }
+    // A chosen capability is a visitor-supplied id on its way to a planner.
+    // It is checked against the published catalog here — not left for the
+    // planner to notice — so a forged or stale pick costs nothing and names
+    // nothing. The surface check (can a component render it) stays with the
+    // contract, which drops an unadvertised id before the provider sees it.
+    if (
+      chosenCapabilityId !== undefined &&
+      !registeredCatalog.plannerManifest.capabilities.some(
+        (capability) => capability.id === chosenCapabilityId,
+      )
+    ) {
+      throw new Error(
+        `Catalog "${catalogId}" has no capability "${chosenCapabilityId}" to compose with.`,
+      );
+    }
+    // The pick is itself the answer to the question that offered it.
+    const answering = answersClarification || chosenCapabilityId !== undefined;
 
     event("RUN_STARTED", {
       catalogId,
@@ -3420,7 +3471,11 @@ export function createViewServer<Session>(
             siteVersion: site.version,
             catalogFingerprint: site.catalog.fingerprint,
             surfaceId: resolvedSurfaceId,
-            prompt,
+            // A pick narrows the prompt's meaning: "show puzzle" composed as
+            // puzzles is not the plan "show puzzle" alone would get, and
+            // serving it for the bare prompt would skip the question for
+            // the next visitor.
+            prompt: chosenCapabilityId ? `${prompt}\0${chosenCapabilityId}` : prompt,
             // Identifies which model wrote the cached plan. `planProvider.id`
             // alone is not enough: two configs can share an id while pointing at
             // different models.
@@ -3483,6 +3538,7 @@ export function createViewServer<Session>(
           issues: DataPlanIssue[];
           question?: string;
           options?: readonly string[];
+          candidates?: readonly ClarificationCandidate[];
         }
       | undefined;
 
@@ -3632,7 +3688,8 @@ export function createViewServer<Session>(
         ...(previous ? { previousPlan: previous.plan } : {}),
         provider: meteredProvider as never,
         deadlineMs: planDeadlineMs,
-        ...(answersClarification ? { allowClarification: false } : {}),
+        ...(answering ? { allowClarification: false } : {}),
+        ...(chosenCapabilityId ? { chosenCapabilityId } : {}),
       });
       planMs = Date.now() - planStartedAt;
       if (!planned.ok) {
@@ -3653,11 +3710,16 @@ export function createViewServer<Session>(
         // same terminal event because `parseComposeEvent` drops frames whose
         // type it does not know, so a third terminal type would leave every
         // existing client waiting for one that never arrives.
-        const asked: { question?: string; options?: readonly string[] } =
+        const asked: {
+          question?: string;
+          options?: readonly string[];
+          candidates?: readonly ClarificationCandidate[];
+        } =
           planned.kind === "needs-clarification"
             ? {
                 question: planned.question,
                 ...(planned.options ? { options: planned.options } : {}),
+                ...(planned.candidates ? { candidates: planned.candidates } : {}),
               }
             : {};
         if (!planned.fallbackPlan) {
@@ -3668,6 +3730,7 @@ export function createViewServer<Session>(
             issues: planned.issues,
             ...(asked.question ? { question: asked.question } : {}),
             ...(asked.options ? { options: [...asked.options] } : {}),
+            ...(asked.candidates ? { candidates: [...asked.candidates] } : {}),
           });
           return {
             ok: false,
@@ -3898,6 +3961,7 @@ export function createViewServer<Session>(
         issues: fellBackFrom.issues,
         ...(fellBackFrom.question ? { question: fellBackFrom.question } : {}),
         ...(fellBackFrom.options ? { options: [...fellBackFrom.options] } : {}),
+        ...(fellBackFrom.candidates ? { candidates: [...fellBackFrom.candidates] } : {}),
       });
       return {
         ok: false,
@@ -3906,6 +3970,7 @@ export function createViewServer<Session>(
         issues: fellBackFrom.issues,
         ...(fellBackFrom.question ? { question: fellBackFrom.question } : {}),
         ...(fellBackFrom.options ? { options: fellBackFrom.options } : {}),
+        ...(fellBackFrom.candidates ? { candidates: fellBackFrom.candidates } : {}),
         fellBack: true,
         planId: plan.planId,
         requests: summarizeRequests(plan, executedData),

@@ -3,6 +3,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import type { PlannerManifest } from "@renderyes/capability-catalog";
 import {
   isRecord,
+  type ClarificationCandidate,
   type DataComposition,
   type DataJoin,
   type DataRequest,
@@ -55,6 +56,15 @@ export interface ComposeDataPlanInput {
    * `CreatePlanContractOptions.allowClarification`.
    */
   allowClarification?: boolean;
+  /**
+   * The approved capability the visitor picked from a clarification's
+   * candidates. Carried to the provider as `planning.chosenCapabilityId`, and
+   * stated in the user prompt for a provider that reads prose. A deterministic
+   * provider plans this capability directly, with no decision call; a
+   * language model is told which capability to use. Pair it with
+   * `allowClarification: false`, since the pick is itself the answer.
+   */
+  chosenCapabilityId?: string;
 }
 
 export interface DataPlanIssue {
@@ -101,6 +111,12 @@ export interface PlanningContext {
   capabilityIds: readonly string[];
   /** The registered site whose components the contract offers. */
   site: RegisteredSite;
+  /**
+   * Set when the visitor picked this capability from a clarification's
+   * candidates. Always one of `capabilityIds`. A provider that can plan a
+   * capability without reading prose should plan this one and ask nothing.
+   */
+  chosenCapabilityId?: string;
 }
 
 /** The request `composeDataPlan` hands a provider: the core shape plus the planning context. */
@@ -125,6 +141,13 @@ export type ComposeDataPlanResult =
       question: string;
       /** Two to four suggested answers, when the question has a closed set. */
       options?: readonly string[];
+      /**
+       * Present when the question is "which approved capability did you
+       * mean". Every entry names a capability the contract advertises — the
+       * provider's list is checked here and anything else is dropped — so a
+       * caller can resubmit the prompt with `chosenCapabilityId` set to one.
+       */
+      candidates?: readonly ClarificationCandidate[];
       reason: string;
       issues: DataPlanIssue[];
       fallbackPlan: PlanV3_1 | null;
@@ -226,9 +249,10 @@ export async function composeDataPlan(
   // sufficient. Preserving what the visitor did not ask to change, and adding
   // to a view rather than replacing it, were both impossible for the same
   // reason.
-  let userPrompt = input.previousPlan
-    ? buildRevisionPrompt(input.prompt, input.previousPlan)
-    : input.prompt;
+  let userPrompt = withChosenCapability(
+    input.previousPlan ? buildRevisionPrompt(input.prompt, input.previousPlan) : input.prompt,
+    input.chosenCapabilityId,
+  );
   let lastIssues: DataPlanIssue[] = [];
   let lastFailureKind: "invalid" | "provider-error" = "invalid";
 
@@ -263,6 +287,10 @@ export async function composeDataPlan(
         plannerManifest: input.plannerManifest,
         capabilityIds: contract.capabilityIds,
         site: input.site,
+        ...(input.chosenCapabilityId &&
+        contract.capabilityIds.includes(input.chosenCapabilityId)
+          ? { chosenCapabilityId: input.chosenCapabilityId }
+          : {}),
       },
     };
     try {
@@ -279,7 +307,15 @@ export async function composeDataPlan(
       break;
     }
 
-    if (!validateDraft(completion.value)) {
+    // A question's `candidates` ride beside the contract rather than inside
+    // it: the closed schema is what the language model is decoded against,
+    // and a capability-id list is not something a model should be invited to
+    // write. They are split off here, checked against the advertised ids
+    // below, and the rest of the draft is validated exactly as before.
+    const { candidates: offeredCandidates, draft: draftValue } = splitCandidates(
+      completion.value,
+    );
+    if (!validateDraft(draftValue)) {
       lastFailureKind = "invalid";
       lastIssues = issuesFromAjv(validateDraft);
     } else if (isRecord(completion.value) && completion.value.status === "unsupported") {
@@ -321,11 +357,13 @@ export async function composeDataPlan(
             (option): option is string => typeof option === "string",
           )
         : undefined;
+      const candidates = advertisedCandidates(offeredCandidates, contract.capabilityIds);
       return {
         ok: false,
         kind: "needs-clarification",
         question: String(completion.value.question),
         ...(options && options.length > 0 ? { options } : {}),
+        ...(candidates.length > 0 ? { candidates } : {}),
         reason: String(completion.value.question),
         issues: [],
         fallbackPlan: input.previousPlan ?? null,
@@ -353,7 +391,12 @@ export async function composeDataPlan(
 
     if (attempt < maxRetries) {
       userPrompt = buildRepairPrompt(
-        input.previousPlan ? buildRevisionPrompt(input.prompt, input.previousPlan) : input.prompt,
+        withChosenCapability(
+          input.previousPlan
+            ? buildRevisionPrompt(input.prompt, input.previousPlan)
+            : input.prompt,
+          input.chosenCapabilityId,
+        ),
         lastIssues,
       );
     }
@@ -366,6 +409,59 @@ export async function composeDataPlan(
     issues: lastIssues,
     fallbackPlan: input.previousPlan ?? null,
   };
+}
+
+/**
+ * The visitor's pick, stated for a provider that reads prose. Deterministic
+ * text, written once here, so a language model behind a clarification sees
+ * the same sentence every time and a test can match it.
+ */
+function withChosenCapability(prompt: string, capabilityId: string | undefined): string {
+  if (!capabilityId) return prompt;
+  return `${prompt}\n\nThe visitor chose the capability "${capabilityId}" for this request. Use that capability.`;
+}
+
+/** A needs-clarification draft's `candidates`, split from the draft the schema sees. */
+function splitCandidates(value: unknown): { candidates: unknown; draft: unknown } {
+  if (!isRecord(value) || value.status !== "needs-clarification" || !("candidates" in value)) {
+    return { candidates: undefined, draft: value };
+  }
+  const { candidates, ...draft } = value;
+  return { candidates, draft };
+}
+
+/** Ceiling on a candidate label: the same as a clarification option. */
+const MAX_CANDIDATE_LABEL_LENGTH = 60;
+
+/**
+ * The offered candidates that name an advertised capability, de-duplicated,
+ * with labels bounded. Anything else is dropped rather than reported: a
+ * candidate the surface cannot bind is not a choice the visitor can make.
+ */
+function advertisedCandidates(
+  offered: unknown,
+  capabilityIds: readonly string[],
+): ClarificationCandidate[] {
+  if (!Array.isArray(offered)) return [];
+  const seen = new Set<string>();
+  const kept: ClarificationCandidate[] = [];
+  for (const entry of offered) {
+    if (!isRecord(entry)) continue;
+    const { capabilityId, label } = entry;
+    if (typeof capabilityId !== "string" || !capabilityIds.includes(capabilityId)) continue;
+    if (seen.has(capabilityId)) continue;
+    const text = typeof label === "string" ? label.replace(/\s+/g, " ").trim() : "";
+    if (!text) continue;
+    seen.add(capabilityId);
+    kept.push({
+      capabilityId,
+      label:
+        text.length > MAX_CANDIDATE_LABEL_LENGTH
+          ? `${text.slice(0, MAX_CANDIDATE_LABEL_LENGTH - 1).trimEnd()}…`
+          : text,
+    });
+  }
+  return kept;
 }
 
 interface ReadyDraft {

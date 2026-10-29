@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { ClarificationCandidate } from "@renderyes/core";
 import { useView, type ViewConfig } from "./provider.js";
 import { topLevelPanelIds, withPanelOrder } from "./panels.js";
 import {
@@ -115,6 +116,13 @@ export interface ComposedNodeBinding {
   >;
 }
 
+/** A question the planner asked, with whatever closed answer set it offered. */
+export interface ClarificationState {
+  question: string;
+  options?: readonly string[];
+  candidates?: readonly ClarificationCandidate[];
+}
+
 export interface ComposeSessionState {
   /**
    * The executed requests behind the current view, ids only. Derived from the
@@ -170,8 +178,11 @@ export interface ComposeSessionState {
    * something true rather than "Couldn't build that view".
    *
    * `options` is present only when the question has a closed answer set.
+   * `candidates` is present when the question is "which of these approved
+   * capabilities did you mean" — the System One planner's uncertain band —
+   * and is answered with `chooseCandidate`, which plans without a model.
    */
-  clarification: { question: string; options?: readonly string[] } | null;
+  clarification: ClarificationState | null;
   /**
    * Answers the outstanding `clarification` and composes again.
    *
@@ -180,6 +191,15 @@ export interface ComposeSessionState {
    * answers. Does nothing when there is no question outstanding.
    */
   answerClarification: (answer: string) => Promise<void>;
+  /**
+   * Answers the outstanding `clarification` by picking one of its
+   * `candidates`, and composes the original prompt again with that capability
+   * fixed. The pick travels as `capabilityId`, not as prose, so a planner that
+   * cannot read a sentence — the fast path — plans it directly with no model
+   * call. Does nothing when no question with candidates is outstanding, or
+   * when the id is not one of them.
+   */
+  chooseCandidate: (capabilityId: string) => Promise<void>;
   /**
    * Validator detail for the failure, when the service returned any. Provided
    * for host logging and debugging — never render it. These are AJV paths and
@@ -678,9 +698,7 @@ function useComposeSessionState(): ComposeState {
    * which is the earliest a batch caller can act on it.
    */
   const serverDeadlineMs = useRef<number | null>(null);
-  const [clarification, setClarification] = useState<
-    { question: string; options?: readonly string[] } | null
-  >(null);
+  const [clarification, setClarification] = useState<ClarificationState | null>(null);
   /**
    * The prompt the outstanding question is about.
    *
@@ -819,7 +837,7 @@ function useComposeSessionState(): ComposeState {
     kind: ComposeFailureKind,
     reason: unknown,
     detail?: unknown,
-    asked?: { question?: unknown; options?: unknown },
+    asked?: { question?: unknown; options?: unknown; candidates?: unknown },
   ) {
     setErrorKind(kind);
     setError(visitorMessage(kind, reason));
@@ -839,9 +857,24 @@ function useComposeSessionState(): ComposeState {
             (option): option is string => typeof option === "string",
           )
         : undefined;
+      // Only well-formed entries: an id and a label, both non-empty strings.
+      // The server built these from its catalog, but they crossed a wire.
+      const candidates = Array.isArray(asked?.candidates)
+        ? (asked.candidates as unknown[]).flatMap((entry) => {
+            if (typeof entry !== "object" || entry === null) return [];
+            const { capabilityId, label } = entry as Record<string, unknown>;
+            return typeof capabilityId === "string" &&
+              capabilityId.trim() &&
+              typeof label === "string" &&
+              label.trim()
+              ? [{ capabilityId, label: label.trim() }]
+              : [];
+          })
+        : undefined;
       setClarification({
         question,
         ...(options && options.length > 0 ? { options } : {}),
+        ...(candidates && candidates.length > 0 ? { candidates } : {}),
       });
     } else {
       setClarification(null);
@@ -866,6 +899,12 @@ function useComposeSessionState(): ComposeState {
        */
       promptOverride?: string;
       answersClarification?: boolean;
+      /**
+       * The capability the visitor picked from a clarification's candidates.
+       * Used only by `chooseCandidate`; the server plans the prompt with that
+       * capability fixed and asks no further question.
+       */
+      capabilityId?: string;
     } = {},
   ) {
     if (options.prompt !== undefined) setPrompt(options.prompt);
@@ -917,6 +956,7 @@ function useComposeSessionState(): ComposeState {
             // the visitor can no longer see.
             ...(options.revise && planId ? { previousPlanId: planId } : {}),
             ...(options.answersClarification ? { answersClarification: true } : {}),
+            ...(options.capabilityId ? { capabilityId: options.capabilityId } : {}),
           }),
           signal: timeoutController.signal,
         },
@@ -1291,6 +1331,24 @@ function useComposeSessionState(): ComposeState {
     });
   }
 
+  /**
+   * Answers the outstanding question by capability id rather than by prose.
+   *
+   * The original prompt goes back unchanged with `capabilityId` beside it. No
+   * "You asked / The answer is" framing: the server reads the id, not a
+   * sentence, which is what lets a planner with no language model honour the
+   * pick. The id must be one the question offered — a stale or forged id is
+   * dropped here, and the server checks it against the catalog again.
+   */
+  async function chooseCandidate(capabilityId: string): Promise<void> {
+    const original = askedAbout.current;
+    const offered = clarification?.candidates?.some(
+      (candidate) => candidate.capabilityId === capabilityId,
+    );
+    if (!original || !offered) return;
+    await submit({ promptOverride: original, capabilityId });
+  }
+
   async function save(label?: string): Promise<{ ok: boolean; viewId?: string }> {
     if (!planId) {
       failWithText("There is no view to save yet.");
@@ -1455,6 +1513,7 @@ function useComposeSessionState(): ComposeState {
     errorKind,
     clarification,
     answerClarification,
+    chooseCandidate,
     issues,
     messages,
     planId,

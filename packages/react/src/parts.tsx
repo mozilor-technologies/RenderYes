@@ -343,13 +343,27 @@ export function ViewSavedBar() {
  * treating them as independent conditions is how a clarification came to render
  * as an error message as well as a question. The order below is the precedence.
  */
-export function ViewNotices({ suggestions }: { suggestions?: readonly string[] }) {
+export interface ViewNoticesProps {
+  suggestions?: readonly string[];
+  /**
+   * Where "none of these, show me the full site" goes when a question offers
+   * capability candidates. A host with its own route passes `onExit` (the same
+   * action as the prompt row's back control); otherwise the control links to
+   * `fullSiteHref`, or to the page the visitor is on when neither is given —
+   * under a dialog, that page is the full site.
+   */
+  onExit?: () => void;
+  fullSiteHref?: string;
+}
+
+export function ViewNotices({ suggestions, onExit, fullSiteHref }: ViewNoticesProps) {
   const {
     busy,
     error,
     errorKind,
     clarification,
     answerClarification,
+    chooseCandidate,
     staleReason,
     messages,
   } = useViewCompose();
@@ -373,7 +387,12 @@ export function ViewNotices({ suggestions }: { suggestions?: readonly string[] }
       <ClarificationPrompt
         clarification={clarification}
         onAnswer={(answer) => void answerClarification(answer)}
+        onChoose={(capabilityId) => void chooseCandidate(capabilityId)}
         busy={busy}
+        escape={{
+          ...(onExit ? { onExit } : {}),
+          ...(fullSiteHref ? { href: fullSiteHref } : {}),
+        }}
       />
       {error && !clarification && errorKind === "unsupported" ? (
         // A refusal is an answer, not a malfunction: it gets a designed card

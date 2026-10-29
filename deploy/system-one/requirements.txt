@@ -1,0 +1,10 @@
+# Pinned to the versions the RenderYes checkpoint was validated against.
+# torch is installed separately from the CPU wheel index (see Dockerfile).
+laya[serve]==0.4.12
+transformers==5.20.2
+tokenizers==0.23.3
+safetensors==0.8.0
+huggingface_hub==2.2.0
+numpy==2.5.4
+fastapi==0.162.0
+uvicorn==0.54.0

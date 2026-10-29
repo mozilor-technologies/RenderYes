@@ -279,6 +279,19 @@ The model server is yours to run and keep warm; a cold call exceeds
 through the same schema and catalog validation a model draft does, and reports
 zero model calls in `ComposeMetrics`.
 
+#### Self-hosting the model
+
+The model server is a container you run next to your host:
+[`deploy/system-one/`](https://github.com/mozilor-technologies/RenderYes/tree/main/deploy/system-one)
+holds a `Dockerfile` for `laya-serve` on CPU, a `docker-compose.yml` that runs
+it beside a host service with a memory limit and a health check, and a README
+with the request shape, measured memory and latency, the thresholds to set, and
+the licences. The checkpoint is not in the image: you mount it at
+`/models/renderyes`, and the container is healthy only once it answers a real
+classification request. Point `url` at
+`http://system-one:8000/v1/systemone` (the compose service name) with
+`model: "renderyes"`, and set `apiKeyEnv` if you turned on `LAYA_API_KEY`.
+
 ### 2.2 Surviving a restart
 
 The registries are in-memory and have to be: a published capability holds a live

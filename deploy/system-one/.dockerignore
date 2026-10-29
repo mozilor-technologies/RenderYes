@@ -1,0 +1,7 @@
+# The build context is this folder. Only the files the Dockerfile copies
+# belong in it; a checkpoint unpacked here must never reach the image.
+*
+!Dockerfile
+!requirements.txt
+!entrypoint.sh
+!probe.py

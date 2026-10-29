@@ -50,7 +50,10 @@ failed slots in `state: "error"`. Read `failedRequests` to report those failures
 without discarding the rest of the view.
 
 `clarification` is separate from `error`. It means the planner needs a choice
-before composing. Call `answerClarification(answer)` with the visitor's answer.
+before composing. Call `answerClarification(answer)` with the visitor's answer,
+or, when it carries `candidates` (approved capabilities, from a System One
+planner with no language model), `chooseCandidate(capabilityId)`, which
+composes the same prompt with that capability fixed and no model call.
 
 `issues` contains validator paths and schema messages for host logging. Do not
 render it to visitors.
@@ -64,8 +67,11 @@ Visitor routes are called by `@renderyes/react`; admin routes are gated by
 `ViewServerConfig` defines the server construction fields. In particular:
 
 - `host` and `resolveSession` are required.
-- `planProviders` is required for model-backed planning. A scripted provider is
-  available for deterministic integration tests.
+- `planProviders` is required for planning. An entry is a language model, a
+  scripted provider for deterministic integration tests, or a System One
+  provider — a typed-decision model that plans confident single-capability
+  prompts from the catalog without a language model (`SystemOneProviderConfig`,
+  see `INTEGRATION.md` §2.1).
 - `allowedUpstreamOrigins` fails closed when omitted or empty.
 - `viewStore` enables saving; `resolveViewOwner` authorizes every plan-addressed
   action, including refine, revise, save, and reopen.

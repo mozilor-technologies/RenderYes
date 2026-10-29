@@ -36,7 +36,7 @@ export interface ScriptedProviderConfig {
 
 /** Distinguishes a scripted entry from a real model at the config boundary. */
 export function isScriptedProvider(
-  provider: ModelProviderConfig | ScriptedProviderConfig,
+  provider: ModelProviderConfig | ScriptedProviderConfig | SystemOneProviderConfig,
 ): provider is ScriptedProviderConfig {
   return Array.isArray((provider as ScriptedProviderConfig).plans);
 }
@@ -108,6 +108,124 @@ export interface ModelProviderConfig {
 export const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
 
 /**
+ * Configures the System One fast path: a small typed-decision model that
+ * classifies a prompt against the catalog's capability ids in a few hundred
+ * milliseconds, after which deterministic rules build the plan. No language
+ * model is involved unless `fallback` names one. See `createSystemOnePlanProvider`
+ * in `system-one.ts` for the routing rules.
+ *
+ * Like `ModelProviderConfig`, this never holds a credential: `apiKeyEnv` and
+ * `fallback.apiKeyEnv` are environment variable *names*, resolved per call.
+ */
+export interface SystemOneProviderConfig {
+  id: string;
+  /**
+   * The decision endpoint, in full — `http://127.0.0.1:8000/v1/systemone` for
+   * a local `laya-serve`. Its presence is what distinguishes this entry from a
+   * `ModelProviderConfig` at the config boundary.
+   */
+  url: string;
+  /** The model name the endpoint serves the RenderYes fine-tune under. */
+  model: string;
+  /**
+   * Minimum calibrated confidence for the fast path to answer a prompt itself.
+   * Defaults to `DEFAULT_SYSTEM_ONE_THRESHOLD` with no fallback and
+   * `DEFAULT_SYSTEM_ONE_THRESHOLD_WITH_FALLBACK` with one: a language model
+   * behind the classifier makes deferring cheap, so the bar for a fast answer
+   * can be higher.
+   */
+  threshold?: number;
+  /**
+   * Minimum confidence for refusing a prompt without a language model when the
+   * classifier picks `none`. Defaults to `DEFAULT_SYSTEM_ONE_REFUSAL_THRESHOLD`.
+   * With no fallback configured every `none` is refused regardless; this only
+   * decides which `none` results skip the fallback when there is one.
+   */
+  refusalThreshold?: number;
+  /**
+   * Model-only mode (no `fallback`) only. A decision whose confidence is at or
+   * above this and below `threshold` is answered with a question rather than
+   * refused: two to four candidate capabilities — the model's pick first, then
+   * the catalog entries whose purpose line or declared values share words with
+   * the prompt — each a chip the visitor can pick, which plans that
+   * capability from the catalog with no model call. Below this bar the prompt
+   * is refused as before. Defaults to
+   * `DEFAULT_SYSTEM_ONE_CLARIFICATION_THRESHOLD`; set it to `threshold` or
+   * above to turn the question off. Ignored when a `fallback` is configured,
+   * where the band goes to the language model instead.
+   */
+  clarificationThreshold?: number;
+  /**
+   * Ceiling on one decision call. Defaults to `DEFAULT_SYSTEM_ONE_TIMEOUT_MS`.
+   * A timeout counts as low confidence: the prompt goes to the fallback or is
+   * refused, never left waiting on a classifier whose whole value is latency.
+   */
+  timeoutMs?: number;
+  /** Environment variable NAME of a bearer token for a hosted endpoint — never the token. Optional. */
+  apiKeyEnv?: string;
+  /**
+   * A language-model planner for everything the fast path does not take:
+   * revisions, repairs, compound or guarded prompts, and low-confidence
+   * decisions. Without it those prompts are refused with a reason.
+   */
+  fallback?: ModelProviderConfig;
+  /**
+   * Shadow mode: every prompt goes to `fallback`, and the classifier's decision
+   * is recorded beside it — through `onModelCall`, as a `classify` event — with
+   * whether the two agreed. Requires `fallback`; nothing the visitor sees
+   * changes. The way to measure the fast path on real traffic before trusting
+   * it.
+   */
+  shadow?: boolean;
+  /** Injectable for tests; defaults to the global `fetch`. */
+  fetchImpl?: typeof fetch;
+}
+
+/** The fast-path confidence bar in model-only mode. Measured on a 1,004-prompt newsroom test set: 62% of prompts taken at 98.4% precision. */
+export const DEFAULT_SYSTEM_ONE_THRESHOLD = 0.75;
+/** The bar with a language model behind the classifier, where a deferral costs latency and tokens rather than an answer. */
+export const DEFAULT_SYSTEM_ONE_THRESHOLD_WITH_FALLBACK = 0.85;
+/** How sure the classifier must be that nothing approved answers before a fallback is skipped. */
+export const DEFAULT_SYSTEM_ONE_REFUSAL_THRESHOLD = 0.98;
+/**
+ * The floor of the uncertain band in model-only mode: a pick at or above this
+ * and below `DEFAULT_SYSTEM_ONE_THRESHOLD` is offered as a choice rather than
+ * refused. On the 1,004-prompt newsroom test set most prompts the model
+ * nearly got right sit between here and the fast-path bar.
+ */
+export const DEFAULT_SYSTEM_ONE_CLARIFICATION_THRESHOLD = 0.5;
+/** A decision takes about 200ms warm; anything past this is a cold or absent server, not a slow answer. */
+export const DEFAULT_SYSTEM_ONE_TIMEOUT_MS = 3_000;
+
+/** Distinguishes a System One entry from a real model or a script at the config boundary. */
+export function isSystemOneProvider(
+  provider: ModelProviderConfig | ScriptedProviderConfig | SystemOneProviderConfig,
+): provider is SystemOneProviderConfig {
+  return typeof (provider as SystemOneProviderConfig).url === "string";
+}
+
+/** Whether a configured entry could make a call right now, without making one. */
+export function providerHasCredentials(
+  provider: ModelProviderConfig | ScriptedProviderConfig | SystemOneProviderConfig,
+): boolean {
+  if (isScriptedProvider(provider)) return provider.plans.length > 0;
+  if (isSystemOneProvider(provider)) {
+    return provider.fallback ? Boolean(process.env[provider.fallback.apiKeyEnv]) : true;
+  }
+  return Boolean(process.env[provider.apiKeyEnv]);
+}
+
+/**
+ * Validates an environment variable name at configuration time, so a typo
+ * fails at boot rather than on the first visitor's request.
+ */
+export function assertEnvName(envName: string, label: string): void {
+  if (!ENV_NAME_PATTERN.test(envName)) {
+    throw new Error(`${label} must be an environment variable name`);
+  }
+}
+
+/**
  * Whether the plan contract can be sent as a provider-*enforced* schema.
  *
  * False, and not as a preference: OpenAI's strict structured-output mode
@@ -173,7 +291,7 @@ export function warnSchemaAdvisoryOnce(provider: string, schema: unknown): void 
  * the resulting `AbortError` into a message that names the provider and the
  * budget rather than surfacing a bare "This operation was aborted".
  */
-async function withTimeout<T>(
+export async function withTimeout<T>(
   label: string,
   timeoutMs: number,
   call: (signal: AbortSignal) => Promise<T>,

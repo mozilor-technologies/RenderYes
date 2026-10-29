@@ -208,6 +208,98 @@ that is the fetch `Request` — so read headers with
 This package still never inspects a credential itself; it only passes the
 request through to you.
 
+### 2.1 System One: the fast path, with or without a language model
+
+A `SystemOneProviderConfig` entry puts a small typed-decision model in front of
+planning. It classifies the prompt against your catalog's capability ids and
+purpose lines in about 200 ms; a confident single-capability prompt is then
+planned from the catalog by rules, with no language model call. Everything else
+goes to an optional `fallback` language model, or is refused with a reason.
+
+```ts
+planProviders: [
+  {
+    id: "system-one",
+    url: "http://127.0.0.1:8000/v1/systemone", // your laya-serve endpoint
+    model: "renderyes",                         // the fine-tune it serves
+    // Optional. Without it the fast path is the whole planner: confident
+    // prompts are answered, everything else is refused with a reason.
+    fallback: { id: "openai", apiKeyEnv: "OPENAI_API_KEY", model: "gpt-5-mini" },
+    // threshold: 0.85,        // 0.75 with no fallback, 0.85 with one
+    // refusalThreshold: 0.98, // skip the fallback on a confident "none"
+    // clarificationThreshold: 0.5, // no fallback only: ask between here and threshold"
+    // timeoutMs: 3000,        // a timeout is low confidence, never an error
+    // apiKeyEnv: "SYSTEM_ONE_TOKEN", // the NAME of a bearer token variable, for a hosted endpoint
+    // shadow: true,           // measure first: the fallback answers, the decision is logged
+  },
+],
+```
+
+What the decision endpoint receives is exactly the prompt, the advertised
+capability ids with their purpose lines, and the model name. It never sees the
+system prompt, a component, a field, a row, or an identity parameter. What it
+returns is a choice and two confidences; it cannot name a value. Every value in
+a fast-path plan comes from your catalog:
+
+| the draft needs | it is read from |
+| --- | --- |
+| the component and slot | the surface's single-slot component whose slot accepts the capability's output; a slot naming the data type wins over one accepting any collection |
+| a filter value ("politics") | an `enum` the data-type schema declares on a field in `supports.sourceFilterFields` (else `filterFields`), including `items.enum` on a list field |
+| an argument value ("easy") | an `enum` the capability's input schema declares |
+| a row count ("five") | a `limit`-like integer argument, and `query.limit`, capped at the capability's ceiling |
+| the sort | the first date-typed field in `supports.sortFields`, newest first unless the prompt says oldest |
+| the heading | the visitor's own words |
+
+So the fast path is as good as the catalog: **declare the values a visitor can
+name** (section titles, difficulty levels, statuses) as enums on those fields
+and arguments. A value the catalog does not declare is never guessed — the
+prompt is deferred to the fallback or refused.
+
+Prompts that never take the fast path, whatever the classifier says: revisions
+and clarification answers (they need the plan on screen), repairs, and any
+prompt that reads as an instruction override, an action ("vote", "subscribe",
+"delete"), someone else's records, the visitor's own private data ("my saved
+articles"), live or external data ("weather tomorrow"), an identifier
+("order #482"), or two asks joined by a conjunction — except two declared
+values of one field ("politics and business"), which is one request with an
+any-group.
+
+**Measure before trusting.** `shadow: true` (requires `fallback`) sends every
+prompt to the language model and records the decision beside it: `onModelCall`
+receives a `classify` event under the same trace id as the `plan` event, with
+the choice, confidences, the path the rules would have taken, and whether the
+language model agreed. Watch the agreement rate at your threshold, then drop
+`shadow`.
+
+**No language model at all** is a supported configuration: omit `fallback`.
+`GET /api/providers` reports the entry as `system-one:<model>` (or
+`system-one:<model>+<fallback model>`), never as a language model.
+
+**The uncertain band asks instead of refusing** in that configuration. A
+decision with confidence at or above `clarificationThreshold` (default 0.5)
+and below `threshold` comes back as a clarification — `kind:
+"needs-clarification"` with a fixed question and two to four `candidates`,
+each `{ capabilityId, label }` — rather than as an `unsupported` refusal. The
+candidates are read from your catalog, never generated: the classifier's pick
+first, then capabilities whose purpose line or declared enum values share a
+word with the prompt (or that the endpoint's own probabilities rank above
+0.1), labelled with the first clause of their purpose line. `@renderyes/react`
+renders them as chips under the question with a "None of these — show me the
+full site" link, and a pick composes the same prompt again with `capabilityId`
+set; that compose builds the view from the catalog with **no model call** and
+asks nothing further. Below `clarificationThreshold` the prompt is refused as
+before; set `clarificationThreshold` to `threshold` or above to turn the
+question off. With a `fallback` the band goes to the language model and this
+never fires. Both halves land on the `classify` event: path `clarify` with
+`candidateIds` when chips are shown, reason `chosen` with
+`chosenCapabilityId` when one is picked — count the two to learn whether the
+band is earning its place.
+
+The model server is yours to run and keep warm; a cold call exceeds
+`timeoutMs` and is treated as low confidence. Every fast-path draft goes
+through the same schema and catalog validation a model draft does, and reports
+zero model calls in `ComposeMetrics`.
+
 ### 2.2 Surviving a restart
 
 The registries are in-memory and have to be: a published capability holds a live
@@ -714,11 +806,30 @@ question and the answer, because the answer alone is not a request. It also
 sets `answersClarification` on the compose, which removes the question branch
 from the planner's contract for that call, making a second question impossible.
 
+A question can also carry `candidates` — approved capabilities, each
+`{ capabilityId, label }` — when a System One planner with no language model
+was unsure which capability the prompt meant (section 2.1). The shipped parts
+render those as chips; a host building its own surface answers with
+`chooseCandidate(capabilityId)` instead of `answerClarification`, which sends
+the original prompt with `capabilityId` beside it rather than a sentence, so
+the server plans that capability with no model call. `options` carries the
+same labels for a surface that renders strings only; answering one of those
+as text goes through `answerClarification` and, with no language model
+configured, is refused — the id is the model-free path. Pass `onExit` or
+`fullSiteHref` to `ViewPage` to say where the chips' "show me the full site"
+link goes; by default it is the page the visitor is on, which under the
+launcher's dialog is the full site already.
+
 Server-side the same thing is `{ kind: "needs-clarification", question,
-options }` on the compose result, and `RUN_ERROR` with those fields when
-streaming. It rides `RUN_ERROR` because `parseComposeEvent` drops frames whose
-type it does not recognise: a third terminal event type would be invisible to
-every existing client, which would then wait for a terminal event that never
+options, candidates }` on the compose result, and `RUN_ERROR` with those
+fields when streaming. Answering by capability is `capabilityId` on the
+compose request (`POST /api/compose` body, or
+`composeAgainstPublishedCatalogs({ capabilityId })`); the server rejects an id
+the published catalog does not hold before anything is planned, and treats a
+pick as the answer to the question, so no second question is possible. It
+rides `RUN_ERROR` because `parseComposeEvent` drops frames whose type it does
+not recognise: a third terminal event type would be invisible to every
+existing client, which would then wait for a terminal event that never
 arrived.
 
 `ComposeMetrics.outcome` counts it separately from both success and failure. A
@@ -766,7 +877,9 @@ createViewServer({
 });
 ```
 
-Every call is covered — each planner repair attempt, the plan-only route, and
+Every call is covered — each planner repair attempt, the plan-only route, a
+System One decision (`operation: "classify"`, with its `classification` block
+and, in shadow mode, whether the language model agreed), and
 any provider you supply yourself through `createProvider`. Instrumentation
 sits at the single point all of those pass through, not inside the built-in
 adapters, so a provider you wrote is traced exactly like the ones we ship.
@@ -825,11 +938,12 @@ catalog — capability descriptions, field names, component inventory. If you
 have told anyone that data stays in your infrastructure, that flag is the
 decision point. Enabling tracing does not enable content capture.
 
-Five limits, all overridable:
+Six limits, all overridable:
 
 | Limit                                       | Default    | Why                                                                                                                                                   |
 | ------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ModelProviderConfig.timeoutMs`             | 60s        | Per model call. A stalled provider otherwise holds the request open indefinitely while tokens are still spent.                                        |
+| `SystemOneProviderConfig.timeoutMs`         | 3s         | Per decision call. A warm decision takes about 200 ms; past this the model server is cold or absent, and the prompt takes the fallback or is refused. |
 | `ViewServerConfig.composeDeadlineMs`        | 45s        | Wall clock across the *whole* request — planning and execution. This is the ceiling that actually bounds a compose; it is reported back on the envelope and on `RUN_STARTED`, allowing the client to derive its timeout. Refine and reopen draw from it too. |
 | `ViewServerConfig.planDeadlineMs`           | 40s        | Wall clock across the planning phase, every repair attempt included. Clamped to sit inside `composeDeadlineMs`: the two cannot sum past the request. |
 | `MAX_PROMPT_LENGTH`                         | 2000 chars | A visitor-facing route forwards prompts to a model that bills by token. Rejected before the provider is called, so an oversized prompt costs nothing. |

@@ -51,6 +51,7 @@ import {
 } from "@renderyes/planner";
 import {
   diffDataModel,
+  type ClarificationCandidate,
   type ComposeEvent,
   type DataRequestState,
 } from "@renderyes/core";
@@ -59,14 +60,24 @@ import {
   createModelPlanProvider,
   createScriptedPlanProvider,
   isScriptedProvider,
+  isSystemOneProvider,
   providerDiagnostic,
+  providerHasCredentials,
   type ModelProviderConfig,
   type ScriptedProviderConfig,
+  type SystemOneProviderConfig,
 } from "./providers.js";
+import { createSystemOnePlanProvider, type SystemOneClassification } from "./system-one.js";
+import type { PlanningContext } from "@renderyes/planner";
 
 export {
+  DEFAULT_SYSTEM_ONE_REFUSAL_THRESHOLD,
+  DEFAULT_SYSTEM_ONE_THRESHOLD,
+  DEFAULT_SYSTEM_ONE_THRESHOLD_WITH_FALLBACK,
+  DEFAULT_SYSTEM_ONE_TIMEOUT_MS,
   createModelPlanProvider,
   createScriptedPlanProvider,
+  isSystemOneProvider,
   jsonModeSystemPrompt,
   oversizedParamsSchemas,
   providerDiagnostic,
@@ -76,7 +87,29 @@ export {
   type ModelProviderConfig,
   type OversizedParamsSchema,
   type ScriptedProviderConfig,
+  type SystemOneProviderConfig,
 } from "./providers.js";
+export {
+  askSystemOne,
+  buildSystemOneDraft,
+  buildSystemOneQuestions,
+  createSystemOnePlanProvider,
+  guardPrompt,
+  routeChosenCapability,
+  routeSystemOne,
+  systemOneCandidates,
+  systemOneRefusalReason,
+  SYSTEM_ONE_CLARIFICATION_QUESTION,
+  type SystemOneCandidate,
+  type SystemOneClassification,
+  type SystemOneDecision,
+  type SystemOneDraft,
+  type SystemOneGuard,
+  type SystemOnePath,
+  type SystemOneReason,
+  type SystemOneRoute,
+} from "./system-one.js";
+export type { PlanningContext } from "@renderyes/planner";
 
 import { createMemoryViewStore, type SavedView, type ViewStore } from "./views.js";
 import { slicePlanToNodes } from "./slice.js";
@@ -176,15 +209,30 @@ export interface PlanProviderResult {
    * silent. Optional: a custom provider that doesn't know must not guess.
    */
   constrainedDecoding?: boolean;
+  /**
+   * The System One decision this result was routed by, when a
+   * `SystemOneProviderConfig` produced it. Read at the server's observation
+   * point and emitted as a `classify` event; never part of the plan.
+   */
+  classification?: SystemOneClassification;
+}
+
+export interface PlanProviderRequest {
+  systemPrompt: string;
+  userPrompt: string;
+  jsonSchema: unknown;
+  /**
+   * What is being planned, as data: the visitor's own prompt, the stage
+   * (initial, revision, repair), the planner-safe manifest and the site.
+   * Supplied on every request `composeDataPlan` makes; a provider that reads
+   * prose can ignore it, and one that cannot — System One — depends on it.
+   */
+  planning?: PlanningContext;
 }
 
 export interface PlanProvider {
   id: string;
-  generatePlan(request: {
-    systemPrompt: string;
-    userPrompt: string;
-    jsonSchema: unknown;
-  }): Promise<PlanProviderResult>;
+  generatePlan(request: PlanProviderRequest): Promise<PlanProviderResult>;
 }
 
 export interface GraphQlHostRequestContext<Session> {
@@ -263,8 +311,17 @@ export interface ViewServerConfig<Session> {
    * A `ScriptedProviderConfig` — `{id, plans}` — is the supported way to run
    * the pipeline without a model. The plans are the host's own, so a pass says
    * something about the install rather than about our guess.
+   *
+   * A `SystemOneProviderConfig` — `{id, url, model, …}` — puts the typed
+   * decision model in front: confident single-capability prompts are planned
+   * from the catalog in a few hundred milliseconds with no language model,
+   * and everything else goes to its `fallback` or is refused with a reason.
    */
-  planProviders?: readonly (ModelProviderConfig | ScriptedProviderConfig)[];
+  planProviders?: readonly (
+    | ModelProviderConfig
+    | ScriptedProviderConfig
+    | SystemOneProviderConfig
+  )[];
   /**
    * Called once per `composeAgainstPublishedCatalogs`, on success and on
    * failure alike. The host decides where this goes — a JSONL file, stdout, a
@@ -974,6 +1031,13 @@ export type ComposeResult =
       question?: string;
       /** Two to four suggested answers, when the question has a closed set. */
       options?: readonly string[];
+      /**
+       * Present when the question is "which approved capability did you
+       * mean": the System One planner's uncertain band, in model-only mode.
+       * Compose the same prompt again with `capabilityId` set to one of these
+       * to answer — that compose makes no model call.
+       */
+      candidates?: readonly ClarificationCandidate[];
       issues: DataPlanIssue[];
       /**
        * Set when a failed *revision* fell back to the view the visitor already
@@ -1487,6 +1551,20 @@ export interface ViewServer<Session> {
      * makes a second turn feel like a conversation rather than a reset.
      */
     previousPlanId?: string;
+    /**
+     * True when this prompt carries the answer to a question the planner
+     * asked; removes the question branch from the contract for this call.
+     */
+    answersClarification?: boolean;
+    /**
+     * The capability the visitor picked from a clarification's `candidates`.
+     * Must name a capability the published catalog holds — anything else is
+     * rejected before any planning. The prompt is composed again with that
+     * capability fixed: a System One planner builds the view from the catalog
+     * with no model call, and a language model is told which capability to
+     * use. Implies `answersClarification`.
+     */
+    capabilityId?: string;
     /**
      * Observes the compose as it runs. Changes nothing about what the compose
      * does or returns — a transport that streams folds these events into a
@@ -2003,11 +2081,21 @@ export function createViewServer<Session>(
         ? // Named as what it is. A scripted provider reported as an available
           // model is the mock's own failure mode rebuilt one level up.
           { id: provider.id, model: "scripted", available: provider.plans.length > 0 }
-        : {
-            id: provider.id,
-            model: provider.model,
-            available: Boolean(process.env[provider.apiKeyEnv]),
-          },
+        : isSystemOneProvider(provider)
+          ? // The decision model, named with its fallback where one is wired,
+            // so a report never mistakes a classifier for a language model.
+            {
+              id: provider.id,
+              model: provider.fallback
+                ? `system-one:${provider.model}+${provider.fallback.model}`
+                : `system-one:${provider.model}`,
+              available: providerHasCredentials(provider),
+            }
+          : {
+              id: provider.id,
+              model: provider.model,
+              available: Boolean(process.env[provider.apiKeyEnv]),
+            },
     );
   }
 
@@ -2022,7 +2110,9 @@ export function createViewServer<Session>(
       provider.id,
       isScriptedProvider(provider)
         ? createScriptedPlanProvider(provider)
-        : createModelPlanProvider(provider),
+        : isSystemOneProvider(provider)
+          ? createSystemOnePlanProvider(provider)
+          : createModelPlanProvider(provider),
     ]),
   );
 
@@ -2077,6 +2167,25 @@ export function createViewServer<Session>(
                 }
               : {}),
           });
+          // The decision that routed this attempt, as its own span under the
+          // same trace. Emitted here rather than inside the provider for the
+          // same reason the plan event is: this is the one point every path
+          // passes, and it is the only place the trace id is known.
+          if (result.classification) {
+            emitModelCall({
+              operation: "classify",
+              traceId: context.traceId,
+              providerId: provider.id,
+              modelId: result.classification.modelId,
+              attempt,
+              startedAt,
+              durationMs: result.classification.durationMs,
+              outcome: result.classification.outcome,
+              ...(result.classification.error ? { error: result.classification.error } : {}),
+              ...(context.catalogId ? { catalogId: context.catalogId } : {}),
+              classification: result.classification,
+            });
+          }
           return result;
         } catch (cause) {
           emitModelCall({
@@ -2215,11 +2324,7 @@ export function createViewServer<Session>(
       // here: a configured provider whose key is unset is the single most
       // likely reason someone is reading this report.
       providersWithCredentials: (config.planProviders ?? [])
-        .filter((provider) =>
-          isScriptedProvider(provider)
-            ? provider.plans.length > 0
-            : Boolean(process.env[provider.apiKeyEnv]),
-        )
+        .filter(providerHasCredentials)
         .map((provider) => provider.id),
     };
   }
@@ -3091,6 +3196,26 @@ export function createViewServer<Session>(
     const contract = createDataPlanningContract(registered.plannerManifest);
     const planProvider = resolvePlanProvider(providerId, createProvider, catalogId);
 
+    // This route plans data only, with no surface, so the context it can
+    // state is the whole manifest and the site's first surface when a UI
+    // catalog is published. A provider that needs more (System One) says so.
+    const registeredSite = uiStore.get(catalogId)?.site;
+    const firstSurfaceId = registeredSite?.surfaces[0]?.id;
+    const planning: PlanningContext | undefined =
+      registeredSite && firstSurfaceId
+        ? {
+            prompt,
+            surfaceId: firstSurfaceId,
+            stage: "initial",
+            attempt: 0,
+            plannerManifest: registered.plannerManifest,
+            capabilityIds: registered.plannerManifest.capabilities
+              .map((capability) => capability.id)
+              .sort(),
+            site: registeredSite,
+          }
+        : undefined;
+
     // Traced too. `planAgainstPublishedCatalog` is a smaller path than
     // compose, but it is still a real model call someone is paying for — a
     // model call that does not appear in the traces is worse than no traces,
@@ -3103,6 +3228,7 @@ export function createViewServer<Session>(
       systemPrompt: contract.systemPrompt,
       userPrompt: prompt,
       jsonSchema: contract.jsonSchema,
+      ...(planning ? { planning } : {}),
     });
 
     const draft = assertRecord(completion.value, "Provider output");
@@ -3198,6 +3324,7 @@ export function createViewServer<Session>(
     uiCatalogId,
     previousPlanId,
     answersClarification,
+    capabilityId: chosenCapabilityId,
     onEvent,
     runId,
   }: {
@@ -3228,6 +3355,13 @@ export function createViewServer<Session>(
      * the visitor is in a loop whose only exit is reloading the page.
      */
     answersClarification?: boolean;
+    /**
+     * The capability the visitor picked from a clarification's candidates.
+     * Checked against the published catalog here, before anything is planned;
+     * a pick the catalog does not hold is rejected rather than passed to a
+     * planner to reason about. Implies `answersClarification`.
+     */
+    capabilityId?: string;
     /**
      * Receives progress events as the compose runs. Supplying it changes what
      * the caller *observes*, never what the compose does or returns: the batch
@@ -3280,6 +3414,23 @@ export function createViewServer<Session>(
     if (!resolvedSurfaceId || !site.getSurface(resolvedSurfaceId)) {
       throw new Error(`Site "${catalogId}" has no surface "${resolvedSurfaceId ?? ""}"`);
     }
+    // A chosen capability is a visitor-supplied id on its way to a planner.
+    // It is checked against the published catalog here — not left for the
+    // planner to notice — so a forged or stale pick costs nothing and names
+    // nothing. The surface check (can a component render it) stays with the
+    // contract, which drops an unadvertised id before the provider sees it.
+    if (
+      chosenCapabilityId !== undefined &&
+      !registeredCatalog.plannerManifest.capabilities.some(
+        (capability) => capability.id === chosenCapabilityId,
+      )
+    ) {
+      throw new Error(
+        `Catalog "${catalogId}" has no capability "${chosenCapabilityId}" to compose with.`,
+      );
+    }
+    // The pick is itself the answer to the question that offered it.
+    const answering = answersClarification || chosenCapabilityId !== undefined;
 
     event("RUN_STARTED", {
       catalogId,
@@ -3320,7 +3471,11 @@ export function createViewServer<Session>(
             siteVersion: site.version,
             catalogFingerprint: site.catalog.fingerprint,
             surfaceId: resolvedSurfaceId,
-            prompt,
+            // A pick narrows the prompt's meaning: "show puzzle" composed as
+            // puzzles is not the plan "show puzzle" alone would get, and
+            // serving it for the bare prompt would skip the question for
+            // the next visitor.
+            prompt: chosenCapabilityId ? `${prompt}\0${chosenCapabilityId}` : prompt,
             // Identifies which model wrote the cached plan. `planProvider.id`
             // alone is not enough: two configs can share an id while pointing at
             // different models.
@@ -3332,9 +3487,14 @@ export function createViewServer<Session>(
               // A scripted provider has no model, and its plans are its
               // identity: two scripts under one id are two different planners
               // as far as a cached plan is concerned.
-              return isScriptedProvider(configured)
-                ? `scripted:${configured.plans.length}`
-                : configured.model;
+              if (isScriptedProvider(configured)) return `scripted:${configured.plans.length}`;
+              // The fast path and its fallback are one planner as far as a
+              // cached plan is concerned: both write plans the same catalog
+              // validated, under one id.
+              if (isSystemOneProvider(configured)) {
+                return `system-one:${configured.model}+${configured.fallback?.model ?? "none"}`;
+              }
+              return configured.model;
             })()}`,
           })
         : undefined;
@@ -3378,6 +3538,7 @@ export function createViewServer<Session>(
           issues: DataPlanIssue[];
           question?: string;
           options?: readonly string[];
+          candidates?: readonly ClarificationCandidate[];
         }
       | undefined;
 
@@ -3527,7 +3688,8 @@ export function createViewServer<Session>(
         ...(previous ? { previousPlan: previous.plan } : {}),
         provider: meteredProvider as never,
         deadlineMs: planDeadlineMs,
-        ...(answersClarification ? { allowClarification: false } : {}),
+        ...(answering ? { allowClarification: false } : {}),
+        ...(chosenCapabilityId ? { chosenCapabilityId } : {}),
       });
       planMs = Date.now() - planStartedAt;
       if (!planned.ok) {
@@ -3548,11 +3710,16 @@ export function createViewServer<Session>(
         // same terminal event because `parseComposeEvent` drops frames whose
         // type it does not know, so a third terminal type would leave every
         // existing client waiting for one that never arrives.
-        const asked: { question?: string; options?: readonly string[] } =
+        const asked: {
+          question?: string;
+          options?: readonly string[];
+          candidates?: readonly ClarificationCandidate[];
+        } =
           planned.kind === "needs-clarification"
             ? {
                 question: planned.question,
                 ...(planned.options ? { options: planned.options } : {}),
+                ...(planned.candidates ? { candidates: planned.candidates } : {}),
               }
             : {};
         if (!planned.fallbackPlan) {
@@ -3563,6 +3730,7 @@ export function createViewServer<Session>(
             issues: planned.issues,
             ...(asked.question ? { question: asked.question } : {}),
             ...(asked.options ? { options: [...asked.options] } : {}),
+            ...(asked.candidates ? { candidates: [...asked.candidates] } : {}),
           });
           return {
             ok: false,
@@ -3793,6 +3961,7 @@ export function createViewServer<Session>(
         issues: fellBackFrom.issues,
         ...(fellBackFrom.question ? { question: fellBackFrom.question } : {}),
         ...(fellBackFrom.options ? { options: [...fellBackFrom.options] } : {}),
+        ...(fellBackFrom.candidates ? { candidates: [...fellBackFrom.candidates] } : {}),
       });
       return {
         ok: false,
@@ -3801,6 +3970,7 @@ export function createViewServer<Session>(
         issues: fellBackFrom.issues,
         ...(fellBackFrom.question ? { question: fellBackFrom.question } : {}),
         ...(fellBackFrom.options ? { options: fellBackFrom.options } : {}),
+        ...(fellBackFrom.candidates ? { candidates: fellBackFrom.candidates } : {}),
         fellBack: true,
         planId: plan.planId,
         requests: summarizeRequests(plan, executedData),

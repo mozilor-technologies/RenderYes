@@ -1,6 +1,7 @@
 import {
   applyDataModelPatch,
   createComposeEventParser,
+  type ClarificationCandidate,
   type ComposeEvent,
 } from "@renderyes/core";
 
@@ -42,6 +43,8 @@ export interface ComposeStreamState {
     /** Set when `kind` is `"needs-clarification"`. See `ComposeEvent`. */
     question?: string;
     options?: string[];
+    /** Capabilities offered as the answer; see `ComposeEvent`. */
+    candidates?: ClarificationCandidate[];
   } | null;
   /** Set when the view on screen is a fallback, not what was asked for. */
   fellBack: boolean;
@@ -161,6 +164,7 @@ export function applyComposeEvent(
           ...(event.issues ? { issues: event.issues } : {}),
           ...(event.question ? { question: event.question } : {}),
           ...(event.options ? { options: event.options } : {}),
+          ...(event.candidates ? { candidates: event.candidates } : {}),
         },
       };
 
@@ -179,6 +183,7 @@ export function applyComposeEvent(
                 ...(event.issues ? { issues: event.issues } : {}),
                 ...(event.question ? { question: event.question } : {}),
                 ...(event.options ? { options: event.options } : {}),
+                ...(event.candidates ? { candidates: event.candidates } : {}),
               },
             }
           : {}),

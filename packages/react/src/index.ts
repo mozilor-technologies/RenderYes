@@ -60,7 +60,7 @@ export {
   ViewSavedControls,
   ViewSuggestions,
 } from "./parts.js";
-export type { ViewPromptProps } from "./parts.js";
+export type { ViewNoticesProps, ViewPromptProps } from "./parts.js";
 export { IsolatedView, RenderBoundary } from "./isolated-view.js";
 export {
   useViewCompose,
@@ -69,6 +69,7 @@ export {
   HOST_ONLY_HOOK_FIELDS,
 } from "./use-compose.js";
 export type {
+  ClarificationState,
   ComposeFailureKind,
   ComposeSessionState,
   ComposeState,
@@ -77,6 +78,8 @@ export type {
   SavedViewSummary,
 } from "./use-compose.js";
 export type { ComposeStage, ComposeStreamState } from "./compose-stream.js";
+/** One capability offered by a clarification; answered with `chooseCandidate`. */
+export type { ClarificationCandidate } from "@renderyes/core";
 export type {
   RefineCondition,
   RefineFilterGroup,

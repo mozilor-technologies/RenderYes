@@ -22,9 +22,15 @@
  * their own code.
  */
 
+import type { SystemOneClassification } from "./system-one.js";
+
 /** One logical model call. A planner repair attempt is a separate event. */
 export interface ModelCallEvent {
-  /** What the call was for. */
+  /**
+   * What the call was for. `classify` is a System One decision — the
+   * pre-planner classifier asked which capability answers a prompt — emitted
+   * beside the `plan` event of the same attempt under the same trace id.
+   */
   operation: "plan" | "classify";
   /**
    * Shared by every model call in one compose, so a repair loop reads as one
@@ -64,6 +70,13 @@ export interface ModelCallEvent {
   systemPrompt?: string;
   userPrompt?: string;
   completion?: string;
+  /**
+   * Present on `classify` events only: the System One decision, the path it
+   * routed to, and — in shadow mode — whether the language model agreed.
+   * Shape-only, like the rest of this event: ids, numbers and rule names,
+   * never the prompt.
+   */
+  classification?: SystemOneClassification;
 }
 
 export type ModelCallObserver = (event: ModelCallEvent) => void;
@@ -100,6 +113,49 @@ function genAiSystem(providerId: string): string {
   if (providerId === "openai") return "openai";
   if (providerId === "gemini") return "gcp.gemini";
   return providerId;
+}
+
+/**
+ * The System One decision as span attributes. Confidence travels as a
+ * string: OTLP integers would round 0.93 to 1, and the whole point of the
+ * number is the part after the point.
+ */
+function classificationAttributes(classification: SystemOneClassification | undefined) {
+  if (!classification) return [];
+  return [
+    ...attr("renderyes.system_one.path", classification.path),
+    ...attr("renderyes.system_one.reason", classification.reason),
+    ...attr("renderyes.system_one.capability_id", classification.capabilityId),
+    ...attr(
+      "renderyes.system_one.confidence",
+      classification.confidence !== undefined
+        ? String(classification.confidence)
+        : undefined,
+    ),
+    ...attr(
+      "renderyes.system_one.in_scope",
+      classification.inScope !== undefined ? String(classification.inScope) : undefined,
+    ),
+    ...attr(
+      "renderyes.system_one.candidate_ids",
+      classification.candidateIds ? classification.candidateIds.join(",") : undefined,
+    ),
+    ...attr(
+      "renderyes.system_one.chosen_capability_id",
+      classification.chosenCapabilityId,
+    ),
+    ...attr("renderyes.system_one.shadow", classification.shadow),
+    ...attr(
+      "renderyes.system_one.agreed",
+      classification.agreed === null ? "unknown" : classification.agreed,
+    ),
+    ...attr(
+      "renderyes.system_one.planner_capability_ids",
+      classification.plannerCapabilityIds
+        ? classification.plannerCapabilityIds.join(",")
+        : undefined,
+    ),
+  ];
 }
 
 export interface OtlpObserverConfig {
@@ -242,6 +298,7 @@ export function createOtlpModelObserver(config: OtlpObserverConfig): OtlpModelOb
           ),
           ...attr("gen_ai.completion", event.completion),
           ...attr("error.message", event.error),
+          ...classificationAttributes(event.classification),
         ],
         status:
           event.outcome === "ok" ? { code: 1 } : { code: 2, message: event.error ?? "" },

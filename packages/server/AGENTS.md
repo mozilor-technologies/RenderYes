@@ -98,6 +98,15 @@ With nothing configured, compose throws `PlanProviderNotConfiguredError`,
 carrying the same wiring report as
 `describePlanningWiring(catalogId)` / `GET /api/planning-wiring`.
 
+## Planning without a language model
+
+A `SystemOneProviderConfig` (`{id, url, model}`) runs the fast path: a typed
+decision model picks the capability, and `src/system-one.ts` builds the draft
+from the catalogs by rules. The rules read values only from the catalog —
+declared enums on filter fields and arguments — and defer or refuse anything
+else; they never bypass validation. Keep it that way: a new rule that guesses a
+value is the mock this package already removed once.
+
 ## Mechanics
 
 - **ESM only**, but resolvable from either loader. Every subpath export carries a `default` condition alongside `import`, so a CommonJS resolver reaches the same ESM build. Node >= 22.

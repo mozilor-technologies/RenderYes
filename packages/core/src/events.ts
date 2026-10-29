@@ -71,6 +71,20 @@ interface ComposeEventBase {
   timestamp: number;
 }
 
+/**
+ * One approved capability offered as an answer to a clarifying question.
+ *
+ * `capabilityId` is the stable id the catalog publishes; `label` is a short
+ * phrase from that capability's purpose line, read by code and never written
+ * by a model. A client answers by composing the same prompt again with
+ * `capabilityId` set, which is a request a planner can honour without reading
+ * prose.
+ */
+export interface ClarificationCandidate {
+  capabilityId: string;
+  label: string;
+}
+
 export type ComposeEvent =
   | (ComposeEventBase & {
       type: "RUN_STARTED";
@@ -145,6 +159,15 @@ export type ComposeEvent =
        */
       question?: string;
       options?: string[];
+      /**
+       * Present when the question is "which of these approved capabilities
+       * did you mean": each entry names one, with a label read from the
+       * catalog's purpose line. Answered by composing the same prompt again
+       * with `capabilityId` set to the chosen id, which plans without a
+       * model. `options` carries the same labels for a client that renders
+       * strings only.
+       */
+      candidates?: ClarificationCandidate[];
     })
   | (ComposeEventBase & {
       type: "RUN_FINISHED";
@@ -166,6 +189,8 @@ export type ComposeEvent =
        */
       question?: string;
       options?: string[];
+      /** As on RUN_ERROR, for a fell-back revision that asked a question with capability candidates. */
+      candidates?: ClarificationCandidate[];
     });
 
 /**

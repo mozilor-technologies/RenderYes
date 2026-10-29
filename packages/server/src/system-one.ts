@@ -58,6 +58,11 @@ export const SYSTEM_ONE_NONE = "none";
 /**
  * The `none` criterion, worded exactly as the model was trained with. The
  * model learned this sentence; a paraphrase would move its calibration.
+ *
+ * `deploy/system-one/systemone_questions.py` mirrors this sentence and the
+ * instructions in `buildSystemOneQuestions` for training data and the
+ * container's health probe. Change both together and refresh
+ * `deploy/system-one/fixtures/questions.json`.
  */
 const NONE_CRITERION =
   "No capability answers this: it needs data this catalog does not hold, an action that " +

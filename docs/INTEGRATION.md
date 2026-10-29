@@ -32,8 +32,8 @@ publishing, provider wiring) is host-side plumbing around
 The frontend never sees a model key or an upstream API credential. If it did,
 shipping the bundle would ship the credential. So identity injection,
 provider calls, and catalog execution have to run somewhere the browser can't
-  reach — that's `@renderyes/server`. Public contracts enforce the boundary:
-  the model emits a `Plan` and never receives identity.
+reach — that's `@renderyes/server`. Public contracts enforce the boundary:
+the model emits a `Plan` and never receives identity.
 
 ## 1. Install
 
@@ -136,10 +136,10 @@ open route is also your bill.
 
 `ok` reports whether the view carries data. Three outcomes:
 
-| envelope | meaning |
-|---|---|
-| `ok: true` | every bound slot delivered |
-| `ok: true, partial: true` | some delivered, some did not — `requests[]` says which, each with its own `error` |
+| envelope                              | meaning                                                                                                  |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `ok: true`                            | every bound slot delivered                                                                               |
+| `ok: true, partial: true`             | some delivered, some did not — `requests[]` says which, each with its own `error`                        |
 | `ok: false, kind: "data-unavailable"` | nothing delivered; `messages` still travels, because the per-slot errors are what the visitor should see |
 
 A partial view stays successful. Three panels that answered and one that could
@@ -147,7 +147,7 @@ not are more useful than refusing the whole screen, and flattening it into a fai
 would lose the difference between that and a blank page. GraphQL returns `data`
 and `errors` together for the same reason.
 
-Checking `ok` tells you whether *anything* arrived. It does not tell you
+Checking `ok` tells you whether _anything_ arrived. It does not tell you
 everything did — that is what `partial` and `requests[]` are for:
 
 - **Using `@renderyes/react`:** `useViewCompose` returns `errorKind`,
@@ -240,14 +240,14 @@ system prompt, a component, a field, a row, or an identity parameter. What it
 returns is a choice and two confidences; it cannot name a value. Every value in
 a fast-path plan comes from your catalog:
 
-| the draft needs | it is read from |
-| --- | --- |
-| the component and slot | the surface's single-slot component whose slot accepts the capability's output; a slot naming the data type wins over one accepting any collection |
-| a filter value ("politics") | an `enum` the data-type schema declares on a field in `supports.sourceFilterFields` (else `filterFields`), including `items.enum` on a list field |
-| an argument value ("easy") | an `enum` the capability's input schema declares |
-| a row count ("five") | a `limit`-like integer argument, and `query.limit`, capped at the capability's ceiling |
-| the sort | the first date-typed field in `supports.sortFields`, newest first unless the prompt says oldest |
-| the heading | the visitor's own words |
+| the draft needs             | it is read from                                                                                                                                    |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the component and slot      | the surface's single-slot component whose slot accepts the capability's output; a slot naming the data type wins over one accepting any collection |
+| a filter value ("politics") | an `enum` the data-type schema declares on a field in `supports.sourceFilterFields` (else `filterFields`), including `items.enum` on a list field  |
+| an argument value ("easy")  | an `enum` the capability's input schema declares                                                                                                   |
+| a row count ("five")        | a `limit`-like integer argument, and `query.limit`, capped at the capability's ceiling                                                             |
+| the sort                    | the first date-typed field in `supports.sortFields`, newest first unless the prompt says oldest                                                    |
+| the heading                 | the visitor's own words                                                                                                                            |
 
 So the fast path is as good as the catalog: **declare the values a visitor can
 name** (section titles, difficulty levels, statuses) as enums on those fields
@@ -291,11 +291,14 @@ the licences. The checkpoint is not in the image: you mount it at
 classification request. Point `url` at
 `http://system-one:8000/v1/systemone` (the compose service name) with
 `model: "renderyes"`, and set `apiKeyEnv` if you turned on `LAYA_API_KEY`.
+Fine-tuning the checkpoint on your own prompts is optional and covered by
+[`deploy/system-one/TRAINING.md`](https://github.com/mozilor-technologies/RenderYes/blob/main/deploy/system-one/TRAINING.md);
+run `shadow: true` first to find out whether you need it.
 
 ### 2.2 Surviving a restart
 
 The registries are in-memory and have to be: a published capability holds a live
-executor closure, and those are not serializable. What *is* persistable is the
+executor closure, and those are not serializable. What _is_ persistable is the
 publish input, and replaying it at boot calls the same function with the same
 argument. There is no separate restoration implementation.
 
@@ -312,7 +315,9 @@ and no restore has run.
 ```ts
 const restored = await renderYesServer.restorePublishedCatalogs();
 for (const failure of restored.failures) {
-  console.error(`Could not restore ${failure.kind} catalog "${failure.id}": ${failure.reason}`);
+  console.error(
+    `Could not restore ${failure.kind} catalog "${failure.id}": ${failure.reason}`,
+  );
 }
 ```
 
@@ -790,7 +795,7 @@ if (clarification) {
 
 `errorKind` is `"needs-clarification"` and `error` carries the question as
 text, so a host that renders neither field still shows something true. **Do not
-render it as an error.** A question means the catalog *can* answer — reporting
+render it as an error.** A question means the catalog _can_ answer — reporting
 it as a failure trains people to rephrase a prompt that was fine.
 
 `answerClarification(answer)` sends the original prompt together with the
@@ -913,14 +918,14 @@ decision point. Enabling tracing does not enable content capture.
 
 Six limits, all overridable:
 
-| Limit                                       | Default    | Why                                                                                                                                                   |
-| ------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ModelProviderConfig.timeoutMs`             | 60s        | Per model call. A stalled provider otherwise holds the request open indefinitely while tokens are still spent.                                        |
-| `SystemOneProviderConfig.timeoutMs`         | 3s         | Per decision call. A warm decision takes about 200 ms; past this the model server is cold or absent, and the prompt takes the fallback or is refused. |
-| `ViewServerConfig.composeDeadlineMs`        | 45s        | Wall clock across the *whole* request — planning and execution. This is the ceiling that actually bounds a compose; it is reported back on the envelope and on `RUN_STARTED`, allowing the client to derive its timeout. Refine and reopen draw from it too. |
-| `ViewServerConfig.planDeadlineMs`           | 40s        | Wall clock across the planning phase, every repair attempt included. Clamped to sit inside `composeDeadlineMs`: the two cannot sum past the request. |
-| `MAX_PROMPT_LENGTH`                         | 2000 chars | A visitor-facing route forwards prompts to a model that bills by token. Rejected before the provider is called, so an oversized prompt costs nothing. |
-| `DataExecutorOptions.maxConcurrentRequests` | 6          | Without a cap, a twelve-capability plan opens twelve simultaneous connections to your own API. The visitor waits for the slowest either way.             |
+| Limit                                       | Default    | Why                                                                                                                                                                                                                                                          |
+| ------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ModelProviderConfig.timeoutMs`             | 60s        | Per model call. A stalled provider otherwise holds the request open indefinitely while tokens are still spent.                                                                                                                                               |
+| `SystemOneProviderConfig.timeoutMs`         | 3s         | Per decision call. A warm decision takes about 200 ms; past this the model server is cold or absent, and the prompt takes the fallback or is refused.                                                                                                        |
+| `ViewServerConfig.composeDeadlineMs`        | 45s        | Wall clock across the _whole_ request — planning and execution. This is the ceiling that actually bounds a compose; it is reported back on the envelope and on `RUN_STARTED`, allowing the client to derive its timeout. Refine and reopen draw from it too. |
+| `ViewServerConfig.planDeadlineMs`           | 40s        | Wall clock across the planning phase, every repair attempt included. Clamped to sit inside `composeDeadlineMs`: the two cannot sum past the request.                                                                                                         |
+| `MAX_PROMPT_LENGTH`                         | 2000 chars | A visitor-facing route forwards prompts to a model that bills by token. Rejected before the provider is called, so an oversized prompt costs nothing.                                                                                                        |
+| `DataExecutorOptions.maxConcurrentRequests` | 6          | Without a cap, a twelve-capability plan opens twelve simultaneous connections to your own API. The visitor waits for the slowest either way.                                                                                                                 |
 
 ## Current scope
 

@@ -208,6 +208,90 @@ that is the fetch `Request` — so read headers with
 This package still never inspects a credential itself; it only passes the
 request through to you.
 
+### 2.1 System One: the fast path, with or without a language model
+
+A `SystemOneProviderConfig` entry puts a small typed-decision model in front of
+planning. It classifies the prompt against your catalog's capability ids and
+purpose lines in about 200 ms; a confident single-capability prompt is then
+planned from the catalog by rules, with no language model call. Everything else
+goes to an optional `fallback` language model, or is refused with a reason.
+
+```ts
+planProviders: [
+  {
+    id: "system-one",
+    url: "http://127.0.0.1:8000/v1/systemone", // your laya-serve endpoint
+    model: "renderyes",                         // the fine-tune it serves
+    // Optional. Without it the fast path is the whole planner: confident
+    // prompts are answered, everything else is refused with a reason.
+    fallback: { id: "openai", apiKeyEnv: "OPENAI_API_KEY", model: "gpt-5-mini" },
+    // threshold: 0.85,        // 0.75 with no fallback, 0.85 with one
+    // refusalThreshold: 0.98, // skip the fallback on a confident "none"
+    // timeoutMs: 3000,        // a timeout is low confidence, never an error
+    // apiKeyEnv: "SYSTEM_ONE_TOKEN", // the NAME of a bearer token variable, for a hosted endpoint
+    // shadow: true,           // measure first: the fallback answers, the decision is logged
+  },
+],
+```
+
+What the decision endpoint receives is exactly the prompt, the advertised
+capability ids with their purpose lines, and the model name. It never sees the
+system prompt, a component, a field, a row, or an identity parameter. What it
+returns is a choice and two confidences; it cannot name a value. Every value in
+a fast-path plan comes from your catalog:
+
+| the draft needs | it is read from |
+| --- | --- |
+| the component and slot | the surface's single-slot component whose slot accepts the capability's output; a slot naming the data type wins over one accepting any collection |
+| a filter value ("politics") | an `enum` the data-type schema declares on a field in `supports.sourceFilterFields` (else `filterFields`), including `items.enum` on a list field |
+| an argument value ("easy") | an `enum` the capability's input schema declares |
+| a row count ("five") | a `limit`-like integer argument, and `query.limit`, capped at the capability's ceiling |
+| the sort | the first date-typed field in `supports.sortFields`, newest first unless the prompt says oldest |
+| the heading | the visitor's own words |
+
+So the fast path is as good as the catalog: **declare the values a visitor can
+name** (section titles, difficulty levels, statuses) as enums on those fields
+and arguments. A value the catalog does not declare is never guessed — the
+prompt is deferred to the fallback or refused.
+
+Prompts that never take the fast path, whatever the classifier says: revisions
+and clarification answers (they need the plan on screen), repairs, and any
+prompt that reads as an instruction override, an action ("vote", "subscribe",
+"delete"), someone else's records, the visitor's own private data ("my saved
+articles"), live or external data ("weather tomorrow"), an identifier
+("order #482"), or two asks joined by a conjunction — except two declared
+values of one field ("politics and business"), which is one request with an
+any-group.
+
+**Measure before trusting.** `shadow: true` (requires `fallback`) sends every
+prompt to the language model and records the decision beside it: `onModelCall`
+receives a `classify` event under the same trace id as the `plan` event, with
+the choice, confidences, the path the rules would have taken, and whether the
+language model agreed. Watch the agreement rate at your threshold, then drop
+`shadow`.
+
+**No language model at all** is a supported configuration: omit `fallback`.
+`GET /api/providers` reports the entry as `system-one:<model>` (or
+`system-one:<model>+<fallback model>`), never as a language model.
+
+The model server is yours to run and keep warm; a cold call exceeds
+`timeoutMs` and is treated as low confidence. Every fast-path draft goes
+through the same schema and catalog validation a model draft does, and reports
+zero model calls in `ComposeMetrics`.
+
+#### Self-hosting the model
+
+The model server is a container you run next to your host:
+[`deploy/system-one/`](https://github.com/mozilor-technologies/RenderYes/tree/main/deploy/system-one)
+holds a `Dockerfile` for `laya-serve` on CPU, a `docker-compose.yml` that runs
+it beside a host service with a memory limit and a health check, and a README
+with the request shape, measured memory and latency, the thresholds to set, and
+the licences. The checkpoint is not in the image: you mount it at
+`/models/renderyes`, and the container is healthy only once it answers a real
+classification request. Point `url` at
+`http://system-one:8000/v1/systemone` (the compose service name) with
+`model: "renderyes"`, and set `apiKeyEnv` if you turned on `LAYA_API_KEY`.
+
 ### 2.2 Surviving a restart
 
 The registries are in-memory and have to be: a published capability holds a live
@@ -766,7 +850,9 @@ createViewServer({
 });
 ```
 
-Every call is covered — each planner repair attempt, the plan-only route, and
+Every call is covered — each planner repair attempt, the plan-only route, a
+System One decision (`operation: "classify"`, with its `classification` block
+and, in shadow mode, whether the language model agreed), and
 any provider you supply yourself through `createProvider`. Instrumentation
 sits at the single point all of those pass through, not inside the built-in
 adapters, so a provider you wrote is traced exactly like the ones we ship.
@@ -825,11 +911,12 @@ catalog — capability descriptions, field names, component inventory. If you
 have told anyone that data stays in your infrastructure, that flag is the
 decision point. Enabling tracing does not enable content capture.
 
-Five limits, all overridable:
+Six limits, all overridable:
 
 | Limit                                       | Default    | Why                                                                                                                                                   |
 | ------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ModelProviderConfig.timeoutMs`             | 60s        | Per model call. A stalled provider otherwise holds the request open indefinitely while tokens are still spent.                                        |
+| `SystemOneProviderConfig.timeoutMs`         | 3s         | Per decision call. A warm decision takes about 200 ms; past this the model server is cold or absent, and the prompt takes the fallback or is refused. |
 | `ViewServerConfig.composeDeadlineMs`        | 45s        | Wall clock across the *whole* request — planning and execution. This is the ceiling that actually bounds a compose; it is reported back on the envelope and on `RUN_STARTED`, allowing the client to derive its timeout. Refine and reopen draw from it too. |
 | `ViewServerConfig.planDeadlineMs`           | 40s        | Wall clock across the planning phase, every repair attempt included. Clamped to sit inside `composeDeadlineMs`: the two cannot sum past the request. |
 | `MAX_PROMPT_LENGTH`                         | 2000 chars | A visitor-facing route forwards prompts to a model that bills by token. Rejected before the provider is called, so an oversized prompt costs nothing. |

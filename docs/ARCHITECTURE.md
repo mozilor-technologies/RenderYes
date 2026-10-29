@@ -409,7 +409,78 @@ The server can reuse validated plans through an opt-in `planCache`, keyed by
 normalized prompt, provider, surface, capability-catalog hash, and UI-catalog
 fingerprint. Capability retrieval by embedding similarity is not implemented.
 
-The planner is the _only_ AI stage in the render path. Everything below is deterministic.
+The language-model planner is the _only generative_ stage in the render path: nothing else
+writes a `Plan` from free text. Everything below it is deterministic. One optional stage sits
+_in front_ of it — a classifier, not a generator — described next.
+
+### 2a. System One: the pre-planner classifier (optional)
+
+**Decision.** A host may configure a `SystemOneProviderConfig` instead of, or in front of, a
+language model (`createSystemOnePlanProvider`, `packages/server/src/system-one.ts`). System
+One is a small typed-decision model fine-tuned for this product. Given the visitor's prompt and
+the catalog's capability ids with their purpose lines, it answers two questions — which approved
+capability answers the prompt (a choice over the ids plus `none`), and whether the approved
+catalog can answer at all (a probability) — each with a calibrated confidence, in about 200 ms.
+It emits a decision only. It cannot name a field, a value, a component, or a parameter, and it
+never receives the system prompt, a component contract, a row, or an identity parameter: the
+request body is exactly `{ state: { request: prompt }, questions, model }`, where `questions`
+is built from the planner-safe manifest's `id → purpose` pairs.
+
+**What follows the decision is ordinary code.** Routing is a pure function of the decision,
+the thresholds and a fixed set of prompt guards. A trusted decision produces the same
+`{status, dataRequests, nodes}` draft the language model would have written, read from the
+catalogs: the component is the surface's single-slot component whose slot accepts the
+capability's output (a slot naming the data type beats one accepting any collection); a filter
+value is an enum the data-type schema declares on a plannable filter field
+(`supports.sourceFilterFields`, else `filterFields`); an argument is an enum the input schema
+declares, or a limit argument from a count in the prompt; the sort is the first date-typed
+`sortFields` entry, newest first unless the prompt says oldest; props come from the component's
+props schema. A value the catalog does not declare is never guessed — the draft is not built and
+the prompt is deferred. The draft then passes through exactly the validation every model draft
+passes (stage 3). System One cannot bypass it, and a draft that fails is not repaired by System
+One: the repair attempt goes to the fallback, or is refused.
+
+**Threshold rules**, in order:
+
+| condition | path |
+| --- | --- |
+| stage is a revision, a repair, or a clarification answer | fallback, else refuse |
+| a guard fires: instruction override, action verb, other person's records, visitor's own private data, external or live data, an identifier, a compound prompt | fallback, else refuse |
+| the decision could not be made: timeout, non-200, unreadable or unadvertised choice | treated as low confidence: fallback, else refuse |
+| choice is `none`, confidence ≥ `refusalThreshold` (0.98) and in-scope < 0.5 | refuse without a model |
+| choice is `none` otherwise | fallback, else refuse |
+| confidence ≥ `threshold` | fast path: build the draft |
+| otherwise | fallback, else refuse |
+
+`threshold` defaults to 0.75 with no fallback (measured on a 1,004-prompt newsroom test set:
+62% of prompts taken at 98.4% precision) and 0.85 with one, where deferring is cheap. The
+compound guard is catalog-aware: a conjunction joining two declared values of one field
+("politics and business") is one request with an any-group, not a compound prompt.
+
+A refusal from this stage is the planner's existing `unsupported` result with a written reason,
+so the client's full-site link and refusal handling are unchanged.
+
+**Shadow mode.** With `shadow: true` and a fallback, every prompt goes to the language model
+and the decision is only recorded: `onModelCall` receives a `classify` event beside the `plan`
+event, under the same trace id, carrying the choice, the confidences, the path the rules would
+have taken, and whether the language model's draft agreed (its draft names the chosen
+capability, or both refused). This is how a host measures the fast path on real traffic before
+trusting it.
+
+**Failure modes, stated.** A qualifier the catalog does not declare as a value is not applied:
+"politics news" against a catalog whose `sections` field has no declared values is answered as
+the unqualified list. The remedy is in the catalog — declare the values — not in this module.
+A prompt that asks for two things without a conjunction is answered by the model's "main"
+capability only. Both are visible in the `classify` event and bounded by the threshold; a host
+that cannot accept either keeps the language model in front (`shadow: true`, or no System One).
+The model server's cold start is the host's to manage: a cold call exceeds `timeoutMs` and is
+treated as low confidence.
+
+**Trust assumption moved.** Before this stage, every plan came from a language model reading
+the full contract. With System One active, a confident single-capability plan is written by
+rules from the catalog, with no language model in the loop. The catalogs and the validator are
+unchanged; what the rules can express is strictly narrower than what the model can, and
+everything they cannot express is deferred or refused.
 
 ### 3. Validate & enforce policy
 
@@ -475,6 +546,10 @@ Current failure behavior is explicit:
 - A planner may return `unsupported`, request clarification, or fail validation
   after its repair attempts. A failed revision keeps the previous validated
   view; a failed initial compose has no automatic grounded-link fallback.
+- With System One configured and no fallback, every prompt the rules do not
+  take — low confidence, a guard, a revision, an unreachable model server — is
+  an `unsupported` result with a reason the visitor can act on. With a fallback,
+  those prompts cost one language-model compose, exactly as without System One.
 - Streaming emits pending slots before data settles. Data-request failures are
   isolated per slot, and successful slots remain renderable in a partial view.
 - A drifted saved view is attempted against current catalogs. Compatible plans
@@ -551,6 +626,9 @@ The publisher pays, so cost is an architectural constraint:
 - A clean compose uses one planning attempt. Validation repair allows up to two
   additional attempts, and a provider's structured-schema fallback can add an
   HTTP call within an attempt.
+- With System One in front, a confident single-capability prompt costs one
+  classifier call (about 200 ms, no tokens, reported as zero model calls) and no
+  language-model call at all. In shadow mode it costs both.
 - Deterministic refinement and component-local sorting/filtering use no model.
 - Surface scoping and compiled-contract reuse are automatic. `planCache` is
   opt-in and caches plans, never fetched data.

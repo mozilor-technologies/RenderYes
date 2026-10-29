@@ -43,3 +43,7 @@ dist-packages/
 # --frozen-lockfile.
 website/build/
 website/.docusaurus/
+
+# Python bytecode (deploy/ scripts)
+__pycache__/
+*.pyc

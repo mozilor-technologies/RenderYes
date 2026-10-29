@@ -76,9 +76,10 @@ match what it will send.
 To keep the model's breadth while it learns your vocabulary, mix in a slice of
 the general training set the checkpoint was trained on:
 `--mix general.jsonl`. It is appended to the training set only, never to the
-held-out one. The general set is distributed beside the checkpoint, not in this
-repository (TODO, RenderYes maintainers: name the location once the checkpoint
-has one).
+held-out one. The general set is distributed beside the checkpoint as
+`general-train.jsonl` in the
+[`mozilor-technologies/renderyes-system-one`](https://huggingface.co/mozilor-technologies/renderyes-system-one) Hugging Face repository,
+not in this repository.
 
 ## 3. Train
 
@@ -163,6 +164,6 @@ move the bar if you need to, then drop `shadow`.
   was synthesised with a local language model; that generator is not part of
   this folder. Hand-written prompts in the styles above are enough for one
   catalog.
-- It does not change the licence question. A checkpoint you train is a
-  derivative of the RenderYes checkpoint, whose licence is to be set (see the
-  README).
+- It does not change the licence. A checkpoint you train is a derivative of
+  the RenderYes checkpoint, which is Apache-2.0; keep its `LICENSE` and
+  `NOTICE` files with your checkpoint and add your own line to the `NOTICE`.

@@ -48,8 +48,21 @@ Mount a directory with this layout (it is what Laya's training writes):
 ```
 
 The checkpoint is distributed separately from this repository and is not
-committed to it. Where to get it: TODO (RenderYes maintainers: publish the
-checkpoint and name the download location here).
+committed to it. It is published as a Hugging Face model repository,
+[`mozilor-technologies/renderyes-system-one`](https://huggingface.co/mozilor-technologies/renderyes-system-one), under Apache-2.0, with
+`LICENSE` and `NOTICE` files inside the checkpoint directory. (Until the first
+upload lands, the maintainers' copy is the only one; see "Publishing the
+checkpoint" below.) Download it with the Hugging Face CLI:
+
+```bash
+pip install huggingface_hub
+hf download mozilor-technologies/renderyes-system-one --local-dir models/renderyes
+```
+
+`LAYA_EXTRA_MODELS` also accepts a Hub repo id in place of a local path, but
+this image sets `HF_HUB_OFFLINE=1` on purpose: a model server that fetches
+weights at start is one more thing that can fail at 3 a.m. Download once, mount
+the directory.
 
 ## Run it
 
@@ -248,13 +261,34 @@ the server's and is checked against `fixtures/questions.json`.
 | --------------------------------------------------------------------- | ------------------------------------ |
 | [Laya](https://pypi.org/project/laya/) (`laya` package, `laya-serve`) | Apache-2.0                           |
 | ModernBERT (the base encoder the checkpoint fine-tunes)               | Apache-2.0                           |
-| The RenderYes fine-tuned checkpoint (`ckpt-multidomain-v3`)           | To be set by RenderYes               |
+| The RenderYes fine-tuned checkpoint (`ckpt-multidomain-v3`)           | Apache-2.0                           |
 | This folder                                                           | MIT, with the rest of the repository |
 
-Both upstream licences permit redistributing a fine-tuned derivative, so the
-checkpoint can be published under terms of RenderYes's choosing.
+The checkpoint is a derivative of Laya and ModernBERT and keeps their licence:
+Apache-2.0, copyright 2026 Mozilor Technologies. The checkpoint directory ships
+a `LICENSE` (the Apache-2.0 text) and a `NOTICE` that names both upstreams and
+the training data: synthetic visitor prompts for seven fictional catalogs,
+written by Qwen3-8B (itself Apache-2.0) from the catalogs' purpose lines, plus
+hand-written evaluation cases. No real visitor data was used. A checkpoint you
+fine-tune from it ([`TRAINING.md`](TRAINING.md)) is a derivative under the same
+terms; keep the `NOTICE` and add your own line to it.
 
-TODO (RenderYes maintainers): choose and state the checkpoint's licence, ship
-a `LICENSE` file inside the checkpoint directory, and record the training-data
-provenance the licence depends on, before the checkpoint is distributed to
-hosts.
+## Publishing the checkpoint
+
+For the maintainers. The checkpoint directory to publish is the one
+`laya-train` wrote, with `LICENSE` and `NOTICE` beside `model.safetensors`.
+Also publish the general training set the training guide's `--mix` option
+reads, as `general-train.jsonl` in the same repository.
+
+```bash
+pip install huggingface_hub
+hf auth login                      # a write token for the mozilor-technologies org
+hf upload mozilor-technologies/renderyes-system-one /path/to/ckpt-multidomain-v3 . \
+  --repo-type model --commit-message "ckpt-multidomain-v3"
+hf upload mozilor-technologies/renderyes-system-one /path/to/general-train.jsonl general-train.jsonl
+```
+
+Set the repository's licence to `apache-2.0` in its model card so the Hub shows
+it, and tag a release of this repository that names the checkpoint revision the
+container was measured against. A new checkpoint is a new revision, not a new
+model name: hosts keep `model: "renderyes"`.

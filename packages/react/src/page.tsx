@@ -55,6 +55,13 @@ export interface ViewPageProps {
   onExit?: () => void;
   /** Label on the control that returns the visitor to your site. Defaults to a generic "Back". */
   exitLabel?: string;
+  /**
+   * Where a question's "none of these, show me the full site" control links
+   * when `onExit` is not given. Defaults to the page the visitor is on, which
+   * under a dialog is the full site already; a page with a route of its own
+   * names the site's front page here, or passes `onExit`.
+   */
+  fullSiteHref?: string;
   /** Placeholder in the ask box. Worth naming your data — a visitor who cannot guess what is
    *  available asks for things the catalog does not hold. */
   placeholder?: string;
@@ -134,6 +141,7 @@ export interface ViewPageProps {
 export function ViewPage({
   onExit,
   exitLabel = "Back",
+  fullSiteHref,
   placeholder,
   suggestions,
   savedViews = true,
@@ -170,7 +178,11 @@ export function ViewPage({
                   <ViewSavedControls />
                 </ViewPrompt>
                 <ViewSavedBar />
-                <ViewNotices {...(suggestions ? { suggestions } : {})} />
+                <ViewNotices
+                  {...(suggestions ? { suggestions } : {})}
+                  {...(onExit ? { onExit } : {})}
+                  {...(fullSiteHref ? { fullSiteHref } : {})}
+                />
                 <ViewResult>
                   <ViewSurface panels />
                 </ViewResult>

@@ -24,6 +24,13 @@
  * live data, or a revision goes to the language model when one is configured
  * and is refused with a reason when not. The fast path answers only what it
  * can answer in full.
+ *
+ * One exception, still without a model: with no language model configured, a
+ * pick the classifier is unsure of — above `clarificationThreshold`, below
+ * `threshold` — is put to the visitor as a question with two to four
+ * candidate capabilities (`systemOneCandidates`). Picking one composes the
+ * same prompt again with `chosenCapabilityId` set, which this provider plans
+ * from the catalog directly and asks nothing about (`routeChosenCapability`).
  */
 import {
   declaredFieldEnumValues,
@@ -41,6 +48,7 @@ import {
 } from "@renderyes/site-sdk";
 import type { PlanProvider, PlanProviderRequest, PlanProviderResult } from "./index.js";
 import {
+  DEFAULT_SYSTEM_ONE_CLARIFICATION_THRESHOLD,
   DEFAULT_SYSTEM_ONE_REFUSAL_THRESHOLD,
   DEFAULT_SYSTEM_ONE_THRESHOLD,
   DEFAULT_SYSTEM_ONE_THRESHOLD_WITH_FALLBACK,
@@ -129,18 +137,28 @@ export type SystemOneDecision =
       confidence: number;
       /** Probability the approved catalog can answer at all, 0-1. */
       inScope: number;
+      /**
+       * The model's probability per advertised choice (and `none`), when the
+       * endpoint reports one. `laya-serve` does, as `probabilities` on the
+       * choice answer; an endpoint that reports only the pick leaves this
+       * unset and the candidate list is built from catalog words alone.
+       */
+      probabilities?: Readonly<Record<string, number>>;
       durationMs: number;
     }
   | { ok: false; error: string; durationMs: number };
 
-/** Where a prompt went, or would have gone. */
-export type SystemOnePath = "fast" | "fast-refusal" | "fallback" | "refuse";
+/**
+ * Where a prompt went, or would have gone. `clarify` is model-only mode's
+ * uncertain band: the visitor is asked which of a few capabilities they meant.
+ */
+export type SystemOnePath = "fast" | "fast-refusal" | "fallback" | "refuse" | "clarify";
 
 export interface SystemOneRoute {
   path: SystemOnePath;
   /** A stable token naming the rule that decided, for logs and tests. */
   reason: SystemOneReason;
-  /** Set when `path` is `fast`. */
+  /** Set when `path` is `fast` (the capability to plan) or `clarify` (the model's pick). */
   capabilityId?: string;
 }
 
@@ -164,6 +182,8 @@ export type SystemOneReason =
   | "none"
   | "low-confidence"
   | "confident"
+  /** The visitor picked this capability from a clarification; no decision was asked. */
+  | "chosen"
   | "no-draft";
 
 /**
@@ -184,6 +204,18 @@ export interface SystemOneClassification {
   /** What was done with the decision — or, in shadow mode, what would have been. */
   path: SystemOnePath;
   reason: SystemOneReason;
+  /**
+   * `clarify` only: the capability ids offered to the visitor, the model's
+   * pick first. Count these events to learn how often chips were shown.
+   */
+  candidateIds?: string[];
+  /**
+   * `chosen` only: the capability the visitor picked from a clarification.
+   * No decision was asked for this request, so `confidence` is absent and
+   * `durationMs` is 0. Count these against `candidateIds` events to learn
+   * which chips get picked.
+   */
+  chosenCapabilityId?: string;
   /** True when the language model answered and this decision only watched. */
   shadow?: boolean;
   /**
@@ -280,6 +312,12 @@ export interface SystemOneRouteInput {
   vocabulary: readonly VocabularyHit[];
   threshold: number;
   refusalThreshold: number;
+  /**
+   * Model-only mode: the floor of the band that is asked rather than refused.
+   * Unused when `hasFallback` is true. Defaults to the threshold itself, which
+   * turns the band off, so a caller that never heard of it sees no change.
+   */
+  clarificationThreshold?: number;
   hasFallback: boolean;
 }
 
@@ -311,7 +349,182 @@ export function routeSystemOne(input: SystemOneRouteInput): SystemOneRoute {
   if (confidence >= input.threshold) {
     return { path: "fast", reason: "confident", capabilityId };
   }
+  // The uncertain band. With a language model behind, deferring is the
+  // better reading; without one, a question with the model's pick first is
+  // worth more than a refusal of a prompt it nearly got right.
+  const clarificationThreshold = input.clarificationThreshold ?? input.threshold;
+  if (!input.hasFallback && confidence >= clarificationThreshold) {
+    return { path: "clarify", reason: "low-confidence", capabilityId };
+  }
   return defer("low-confidence");
+}
+
+export interface ChosenCapabilityRouteInput {
+  prompt: string;
+  stage: PlanningContext["stage"];
+  /** The capability the visitor picked from a clarification. */
+  chosenCapabilityId: string;
+  /** The ids the contract advertises; a pick outside them is not planned. */
+  capabilityIds: readonly string[];
+  /** Catalog vocabulary matched in the prompt, for the compound rule. */
+  vocabulary: readonly VocabularyHit[];
+  hasFallback: boolean;
+}
+
+/**
+ * Routes a request whose capability the visitor already chose. No decision is
+ * asked: the pick is the answer, and it takes the fast path at full trust —
+ * unless the prompt trips a guard, which the original request could not have
+ * done and still been asked, so a guarded prompt here is not one this module
+ * offered a choice on. A revision or repair stays with the language model or
+ * is refused, as for any other prompt.
+ */
+export function routeChosenCapability(input: ChosenCapabilityRouteInput): SystemOneRoute {
+  const defer = (reason: SystemOneReason): SystemOneRoute => ({
+    path: input.hasFallback ? "fallback" : "refuse",
+    reason,
+  });
+  if (!input.prompt.trim()) return defer("empty-prompt");
+  if (input.stage !== "initial" && input.stage !== "clarification-answer") {
+    return defer(input.stage);
+  }
+  const guard = guardPrompt(input.prompt, input.vocabulary);
+  if (guard) return defer(guard);
+  if (!input.capabilityIds.includes(input.chosenCapabilityId)) return defer("no-draft");
+  return { path: "fast", reason: "chosen", capabilityId: input.chosenCapabilityId };
+}
+
+/* ------------------------------------------------------------------------ */
+/* Candidates: the choice put to the visitor, read from the catalog.         */
+/* ------------------------------------------------------------------------ */
+
+/** One capability the visitor may pick, as the client renders it. */
+export interface SystemOneCandidate {
+  capabilityId: string;
+  /** The first clause of the capability's purpose line, bounded. */
+  label: string;
+}
+
+/** The question above the chips. Fixed text, no angle brackets, no model. */
+export const SYSTEM_ONE_CLARIFICATION_QUESTION =
+  "Which of these is closest to what you want to see?";
+
+const MIN_CANDIDATES = 2;
+const MAX_CANDIDATES = 4;
+const MAX_CANDIDATE_LABEL_LENGTH = 60;
+/** A model probability below this is noise, not an alternative reading. */
+const MIN_CANDIDATE_PROBABILITY = 0.1;
+/**
+ * Words that carry no meaning about which capability is meant: English
+ * function words, the verbs every prompt opens with, and the boilerplate a
+ * purpose line is written in ("Use when the visitor asks for…"). Generic on
+ * purpose; a site's own words belong in its catalog.
+ */
+const CANDIDATE_STOPWORDS = new Set(
+  [
+    "a an the this that these those of in on at to for from by with and or as is are was were be",
+    "it its my me i you your our we they them their what which who how all any some every one",
+    "do does did have has had be been being am was were will would should can could may might",
+    "show see view list get give find display open want need like please",
+    "use used when visitor asks ask request requests about into onto up down out",
+  ]
+    .join(" ")
+    .split(" "),
+);
+
+/**
+ * Builds the choice put to the visitor when the decision was unsure, from the
+ * catalog and the decision alone. Never a model call.
+ *
+ * The model's pick comes first. The rest are the advertised capabilities with
+ * a reason to be there — a model probability of at least 0.1 when the endpoint
+ * reports probabilities, or a word the prompt shares with the capability's
+ * purpose line or one of its declared values — ranked by probability, then by
+ * shared words, then by catalog order. The list is capped at four. When fewer
+ * than two have a reason, it is padded in catalog order, because one chip is
+ * a confirmation and the visitor was asked for a choice.
+ *
+ * Labels are the first clause of each purpose line, which the catalog's owner
+ * wrote for a planner to read and which is the closest thing to a name the
+ * catalog holds. Nothing here is generated.
+ */
+export function systemOneCandidates(input: {
+  prompt: string;
+  pickedCapabilityId: string;
+  probabilities?: Readonly<Record<string, number>>;
+  plannerManifest: Pick<PlannerManifest, "capabilities" | "dataTypes">;
+  capabilityIds: readonly string[];
+}): SystemOneCandidate[] {
+  const advertised = new Set(input.capabilityIds);
+  const capabilities = input.plannerManifest.capabilities.filter((capability) =>
+    advertised.has(capability.id),
+  );
+  const promptTokens = new Set(
+    tokenize(input.prompt).filter((token) => !CANDIDATE_STOPWORDS.has(token)),
+  );
+  const label = (capability: PlannerCapability): SystemOneCandidate => ({
+    capabilityId: capability.id,
+    label: candidateLabel(capability),
+  });
+
+  const picked = capabilities.find(
+    (capability) => capability.id === input.pickedCapabilityId,
+  );
+  const candidates: SystemOneCandidate[] = picked ? [label(picked)] : [];
+
+  const scored = capabilities
+    .filter((capability) => capability.id !== input.pickedCapabilityId)
+    .map((capability, order) => {
+      const dataType = input.plannerManifest.dataTypes.find(
+        (candidate) => candidate.id === capability.output.dataTypeId,
+      );
+      const words = new Set<string>();
+      for (const token of tokenize(capability.purpose)) {
+        if (!CANDIDATE_STOPWORDS.has(token)) words.add(token);
+      }
+      for (const entry of catalogVocabulary(capability, dataType)) {
+        for (const token of entry.tokens) words.add(token);
+      }
+      let overlap = 0;
+      for (const token of promptTokens) if (words.has(token)) overlap += 1;
+      const probability = input.probabilities?.[capability.id] ?? 0;
+      return { capability, order, overlap, probability };
+    })
+    .sort(
+      (a, b) =>
+        b.probability - a.probability || b.overlap - a.overlap || a.order - b.order,
+    );
+
+  for (const entry of scored) {
+    if (candidates.length >= MAX_CANDIDATES) break;
+    if (entry.probability >= MIN_CANDIDATE_PROBABILITY || entry.overlap > 0) {
+      candidates.push(label(entry.capability));
+    }
+  }
+  if (candidates.length < MIN_CANDIDATES) {
+    const present = new Set(candidates.map((candidate) => candidate.capabilityId));
+    for (const capability of capabilities) {
+      if (candidates.length >= MIN_CANDIDATES) break;
+      if (!present.has(capability.id)) candidates.push(label(capability));
+    }
+  }
+  return candidates;
+}
+
+/** The first clause of a purpose line, sentence-cased and bounded; the id when there is none. */
+function candidateLabel(capability: PlannerCapability): string {
+  const clause = capability.purpose
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/(?<=[.!?;:])\s|\s[—–-]\s/)[0]
+    .replace(/[.!?;:,]+$/, "")
+    .replace(/[<>]/g, "")
+    .trim();
+  const text = clause || capability.id;
+  const cased = text.charAt(0).toUpperCase() + text.slice(1);
+  return cased.length > MAX_CANDIDATE_LABEL_LENGTH
+    ? `${cased.slice(0, MAX_CANDIDATE_LABEL_LENGTH - 1).trimEnd()}…`
+    : cased;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -885,6 +1098,7 @@ export function systemOneRefusalReason(reason: SystemOneReason): string {
     case "low-confidence":
     case "empty-prompt":
     case "confident":
+    case "chosen":
     default:
       return "That request was not clear enough to match to what this site publishes. Try naming what you want to see.";
   }
@@ -964,11 +1178,33 @@ function parseDecision(
   if (typeof choice !== "string" || !choices.includes(choice)) return undefined;
   if (confidence === undefined || inScope === undefined) return undefined;
   if (confidence < 0 || confidence > 1 || inScope < 0 || inScope > 1) return undefined;
+  const probabilities = parseProbabilities(capability.probabilities, choices);
   return {
     capabilityId: choice,
     confidence: Math.round(confidence * 1000) / 1000,
     inScope: Math.round(inScope * 1000) / 1000,
+    ...(probabilities ? { probabilities } : {}),
   };
+}
+
+/**
+ * The per-choice distribution, when the endpoint sent one that reads. Only
+ * advertised choices are kept and only well-formed numbers; a malformed block
+ * is dropped rather than failing the decision, because the pick and its
+ * confidence are what routing needs and this only ranks alternatives.
+ */
+function parseProbabilities(
+  value: unknown,
+  choices: readonly string[],
+): Record<string, number> | undefined {
+  if (!isPlainRecord(value)) return undefined;
+  const out: Record<string, number> = {};
+  for (const choice of choices) {
+    const probability = readNumber(value[choice]);
+    if (probability === undefined || probability < 0 || probability > 1) continue;
+    out[choice] = Math.round(probability * 1000) / 1000;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -993,9 +1229,12 @@ export function capabilityIdsIn(value: unknown, out = new Set<string>()): Set<st
  *
  * Per call: ask the decision endpoint, route by the rules, then one of —
  * build the draft from the catalog (`fast`), refuse with a written reason
- * (`fast-refusal`, `refuse`), or hand the untouched request to the fallback
- * language model (`fallback`). In shadow mode the fallback always answers and
- * the decision is only recorded. Either way the result carries a
+ * (`fast-refusal`, `refuse`), put a choice of capabilities to the visitor
+ * (`clarify`, model-only mode), or hand the untouched request to the fallback
+ * language model (`fallback`). A request that carries the visitor's pick from
+ * such a choice (`planning.chosenCapabilityId`) asks no decision at all and
+ * plans that capability from the catalog. In shadow mode the fallback always
+ * answers and the decision is only recorded. Either way the result carries a
  * `classification` block, which the server emits as a `classify` event.
  *
  * Requires the planning context `composeDataPlan` supplies on every request;
@@ -1024,6 +1263,8 @@ export function createSystemOnePlanProvider(
       : DEFAULT_SYSTEM_ONE_THRESHOLD);
   const refusalThreshold =
     config.refusalThreshold ?? DEFAULT_SYSTEM_ONE_REFUSAL_THRESHOLD;
+  const clarificationThreshold =
+    config.clarificationThreshold ?? DEFAULT_SYSTEM_ONE_CLARIFICATION_THRESHOLD;
   const modelId = `system-one:${config.model}`;
 
   const classify = (
@@ -1044,6 +1285,20 @@ export function createSystemOnePlanProvider(
     reason: route.reason,
   });
 
+  /** The record of a request that asked no decision: the visitor's pick stands in for one. */
+  const classifyChosen = (
+    chosenCapabilityId: string,
+    route: SystemOneRoute,
+  ): SystemOneClassification => ({
+    modelId,
+    durationMs: 0,
+    outcome: "ok",
+    capabilityId: chosenCapabilityId,
+    chosenCapabilityId,
+    path: route.path,
+    reason: route.reason,
+  });
+
   const refusal = (classification: SystemOneClassification): PlanProviderResult => ({
     modelId,
     value: {
@@ -1053,6 +1308,84 @@ export function createSystemOnePlanProvider(
     usage: { calls: 0 },
     classification,
   });
+
+  /**
+   * Carries a route out: the draft, the question, the fallback call, or the
+   * refusal. `record` turns the route actually taken into its classification,
+   * because a fast route can still end deferred when no draft can be built.
+   */
+  const settle = async (
+    request: PlanProviderRequest,
+    planning: PlanningContext,
+    route: SystemOneRoute,
+    record: (route: SystemOneRoute) => SystemOneClassification,
+    decision?: SystemOneDecision,
+  ): Promise<PlanProviderResult> => {
+    const prompt = planning.prompt;
+    if (route.path === "fast" && route.capabilityId) {
+      const drafted = buildSystemOneDraft({
+        prompt,
+        capabilityId: route.capabilityId,
+        plannerManifest: planning.plannerManifest,
+        site: planning.site,
+        surfaceId: planning.surfaceId,
+      });
+      if (drafted.ok) {
+        return {
+          modelId,
+          value: drafted.draft,
+          usage: { calls: 0 },
+          classification: record(route),
+        };
+      }
+      const deferred: SystemOneRoute = {
+        path: fallback ? "fallback" : "refuse",
+        reason: "no-draft",
+      };
+      console.warn(
+        `[planner:${config.id}] no deterministic draft for ${route.capabilityId} (${drafted.reason}); ${deferred.path}`,
+      );
+      return deferred.path === "fallback"
+        ? withClassification(await fallback!.generatePlan(request), record(deferred))
+        : refusal(record(deferred));
+    }
+    if (route.path === "clarify" && route.capabilityId) {
+      const candidates = systemOneCandidates({
+        prompt,
+        pickedCapabilityId: route.capabilityId,
+        ...(decision?.ok && decision.probabilities
+          ? { probabilities: decision.probabilities }
+          : {}),
+        plannerManifest: planning.plannerManifest,
+        capabilityIds: planning.capabilityIds,
+      });
+      // The pick is advertised (routing checked the choice against the
+      // question's keys), so at least one candidate always exists; two is
+      // the floor the contract puts on `options`, and a catalog with a single
+      // advertised capability cannot reach it. Refuse as before then.
+      if (candidates.length < MIN_CANDIDATES) {
+        return refusal(record({ path: "refuse", reason: "low-confidence" }));
+      }
+      return {
+        modelId,
+        value: {
+          status: "needs-clarification",
+          question: SYSTEM_ONE_CLARIFICATION_QUESTION,
+          options: candidates.map((candidate) => candidate.label),
+          candidates,
+        },
+        usage: { calls: 0 },
+        classification: {
+          ...record(route),
+          candidateIds: candidates.map((candidate) => candidate.capabilityId),
+        },
+      };
+    }
+    if (route.path === "fallback" && fallback) {
+      return withClassification(await fallback.generatePlan(request), record(route));
+    }
+    return refusal(record(route));
+  };
 
   return {
     id: config.id,
@@ -1100,6 +1433,23 @@ export function createSystemOnePlanProvider(
         return { ...outcome.result, classification };
       }
 
+      // The visitor already chose. No decision is asked: the model was unsure
+      // once and the person answered, and asking again would be a second
+      // opinion nobody wanted. The pick is routed by the same guards as any
+      // prompt and planned by the same catalog rules.
+      const chosen = planning.chosenCapabilityId;
+      if (chosen) {
+        const route = routeChosenCapability({
+          prompt,
+          stage: planning.stage,
+          chosenCapabilityId: chosen,
+          capabilityIds: planning.capabilityIds,
+          vocabulary: vocabularyFor(prompt, chosen, planning),
+          hasFallback: Boolean(fallback),
+        });
+        return settle(request, planning, route, (taken) => classifyChosen(chosen, taken));
+      }
+
       // The decision is asked before the guards run, so a guarded prompt is
       // still recorded with what the model would have said — that is the
       // number a host tunes thresholds against.
@@ -1114,46 +1464,16 @@ export function createSystemOnePlanProvider(
         vocabulary,
         threshold,
         refusalThreshold,
+        clarificationThreshold,
         hasFallback: Boolean(fallback),
       });
-
-      if (route.path === "fast" && route.capabilityId) {
-        const drafted = buildSystemOneDraft({
-          prompt,
-          capabilityId: route.capabilityId,
-          plannerManifest: planning.plannerManifest,
-          site: planning.site,
-          surfaceId: planning.surfaceId,
-        });
-        if (drafted.ok) {
-          return {
-            modelId,
-            value: drafted.draft,
-            usage: { calls: 0 },
-            classification: classify(decision, route),
-          };
-        }
-        const deferred: SystemOneRoute = {
-          path: fallback ? "fallback" : "refuse",
-          reason: "no-draft",
-        };
-        console.warn(
-          `[planner:${config.id}] no deterministic draft for ${route.capabilityId} (${drafted.reason}); ${deferred.path}`,
-        );
-        return deferred.path === "fallback"
-          ? withClassification(
-              await fallback!.generatePlan(request),
-              classify(decision, deferred),
-            )
-          : refusal(classify(decision, deferred));
-      }
-      if (route.path === "fallback" && fallback) {
-        return withClassification(
-          await fallback.generatePlan(request),
-          classify(decision, route),
-        );
-      }
-      return refusal(classify(decision, route));
+      return settle(
+        request,
+        planning,
+        route,
+        (taken) => classify(decision, taken),
+        decision,
+      );
     },
   };
 }

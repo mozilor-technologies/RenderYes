@@ -136,6 +136,14 @@ function classificationAttributes(classification: SystemOneClassification | unde
       "renderyes.system_one.in_scope",
       classification.inScope !== undefined ? String(classification.inScope) : undefined,
     ),
+    ...attr(
+      "renderyes.system_one.candidate_ids",
+      classification.candidateIds ? classification.candidateIds.join(",") : undefined,
+    ),
+    ...attr(
+      "renderyes.system_one.chosen_capability_id",
+      classification.chosenCapabilityId,
+    ),
     ...attr("renderyes.system_one.shadow", classification.shadow),
     ...attr(
       "renderyes.system_one.agreed",

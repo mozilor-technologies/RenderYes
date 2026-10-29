@@ -143,6 +143,19 @@ export interface SystemOneProviderConfig {
    */
   refusalThreshold?: number;
   /**
+   * Model-only mode (no `fallback`) only. A decision whose confidence is at or
+   * above this and below `threshold` is answered with a question rather than
+   * refused: two to four candidate capabilities — the model's pick first, then
+   * the catalog entries whose purpose line or declared values share words with
+   * the prompt — each a chip the visitor can pick, which plans that
+   * capability from the catalog with no model call. Below this bar the prompt
+   * is refused as before. Defaults to
+   * `DEFAULT_SYSTEM_ONE_CLARIFICATION_THRESHOLD`; set it to `threshold` or
+   * above to turn the question off. Ignored when a `fallback` is configured,
+   * where the band goes to the language model instead.
+   */
+  clarificationThreshold?: number;
+  /**
    * Ceiling on one decision call. Defaults to `DEFAULT_SYSTEM_ONE_TIMEOUT_MS`.
    * A timeout counts as low confidence: the prompt goes to the fallback or is
    * refused, never left waiting on a classifier whose whole value is latency.
@@ -174,6 +187,13 @@ export const DEFAULT_SYSTEM_ONE_THRESHOLD = 0.75;
 export const DEFAULT_SYSTEM_ONE_THRESHOLD_WITH_FALLBACK = 0.85;
 /** How sure the classifier must be that nothing approved answers before a fallback is skipped. */
 export const DEFAULT_SYSTEM_ONE_REFUSAL_THRESHOLD = 0.98;
+/**
+ * The floor of the uncertain band in model-only mode: a pick at or above this
+ * and below `DEFAULT_SYSTEM_ONE_THRESHOLD` is offered as a choice rather than
+ * refused. On the 1,004-prompt newsroom test set most prompts the model
+ * nearly got right sit between here and the fast-path bar.
+ */
+export const DEFAULT_SYSTEM_ONE_CLARIFICATION_THRESHOLD = 0.5;
 /** A decision takes about 200ms warm; anything past this is a cold or absent server, not a slow answer. */
 export const DEFAULT_SYSTEM_ONE_TIMEOUT_MS = 3_000;
 

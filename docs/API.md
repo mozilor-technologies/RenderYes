@@ -50,7 +50,10 @@ failed slots in `state: "error"`. Read `failedRequests` to report those failures
 without discarding the rest of the view.
 
 `clarification` is separate from `error`. It means the planner needs a choice
-before composing. Call `answerClarification(answer)` with the visitor's answer.
+before composing. Call `answerClarification(answer)` with the visitor's answer,
+or, when it carries `candidates` (approved capabilities, from a System One
+planner with no language model), `chooseCandidate(capabilityId)`, which
+composes the same prompt with that capability fixed and no model call.
 
 `issues` contains validator paths and schema messages for host logging. Do not
 render it to visitors.

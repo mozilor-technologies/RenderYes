@@ -594,6 +594,9 @@ function composeEventStreamResponse<Session>(
           ...(body.answersClarification === true
             ? { answersClarification: true }
             : {}),
+          ...(asString(body.capabilityId)
+            ? { capabilityId: asString(body.capabilityId)! }
+            : {}),
           ...(asString(body.previousPlanId)
             ? { previousPlanId: asString(body.previousPlanId)! }
             : {}),
@@ -664,6 +667,7 @@ async function dispatch<Session>(
         ...(asString(body.surfaceId) ? { surfaceId: asString(body.surfaceId)! } : {}),
         ...(asString(body.uiCatalogId) ? { uiCatalogId: asString(body.uiCatalogId)! } : {}),
         ...(body.answersClarification === true ? { answersClarification: true } : {}),
+        ...(asString(body.capabilityId) ? { capabilityId: asString(body.capabilityId)! } : {}),
         ...(asString(body.previousPlanId) ? { previousPlanId: asString(body.previousPlanId)! } : {}),
         ...(asString(body.providerId) ? { providerId: asString(body.providerId)! } : {}),
         request,

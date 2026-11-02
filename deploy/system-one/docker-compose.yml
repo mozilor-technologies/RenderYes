@@ -1,0 +1,51 @@
+# The System One model server beside a host application.
+#
+#   mkdir -p models && cp -r /path/to/ckpt-multidomain-v3 models/renderyes
+#   docker compose up --build
+#
+# `host` stands for your own application image: the one that runs
+# @renderyes/server with a SystemOneProviderConfig whose `url` is
+# http://system-one:8000/v1/systemone. It waits for the model to be healthy,
+# which means loaded and answering, before it starts.
+services:
+  system-one:
+    build: .
+    image: renderyes-system-one:local
+    restart: unless-stopped
+    environment:
+      # Match the CPU quota below. torch otherwise spawns one thread per host
+      # core and oversubscribes the quota, which is a large regression.
+      LAYA_THREADS: "4"
+      # Uncomment to require `Authorization: Bearer <token>` on every request,
+      # then set `apiKeyEnv` on the provider config to the NAME of the
+      # variable the host reads the same token from.
+      # LAYA_API_KEY: ${SYSTEM_ONE_TOKEN:?set SYSTEM_ONE_TOKEN}
+    volumes:
+      # The checkpoint directory: model.safetensors, tokenizer/, encoder/,
+      # questions.json, rl_agent_config.json. Read-only; the server writes
+      # nothing there.
+      - ./models/renderyes:/models/renderyes:ro
+    deploy:
+      resources:
+        limits:
+          # Measured resident set on CPU is in README.md; the limit leaves
+          # headroom for a burst of concurrent requests. Below about 3 GB
+          # the checkpoint does not finish loading.
+          memory: 4g
+          cpus: "4"
+    # Only publish the port when something outside this compose project
+    # (a host running on the machine itself, for example) needs it.
+    # ports:
+    #   - "127.0.0.1:8000:8000"
+
+  host:
+    image: your-host-app:latest
+    restart: unless-stopped
+    depends_on:
+      system-one:
+        condition: service_healthy
+    environment:
+      SYSTEM_ONE_URL: http://system-one:8000/v1/systemone
+      # SYSTEM_ONE_TOKEN: ${SYSTEM_ONE_TOKEN}
+    ports:
+      - "3000:3000"

@@ -64,8 +64,11 @@ Visitor routes are called by `@renderyes/react`; admin routes are gated by
 `ViewServerConfig` defines the server construction fields. In particular:
 
 - `host` and `resolveSession` are required.
-- `planProviders` is required for model-backed planning. A scripted provider is
-  available for deterministic integration tests.
+- `planProviders` is required for planning. An entry is a language model, a
+  scripted provider for deterministic integration tests, or a System One
+  provider — a typed-decision model that plans confident single-capability
+  prompts from the catalog without a language model (`SystemOneProviderConfig`,
+  see `INTEGRATION.md` §2.1).
 - `allowedUpstreamOrigins` fails closed when omitted or empty.
 - `viewStore` enables saving; `resolveViewOwner` authorizes every plan-addressed
   action, including refine, revise, save, and reopen.

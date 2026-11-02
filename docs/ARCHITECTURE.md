@@ -450,6 +450,7 @@ One: the repair attempt goes to the fallback, or is refused.
 | choice is `none`, confidence ≥ `refusalThreshold` (0.98) and in-scope < 0.5 | refuse without a model |
 | choice is `none` otherwise | fallback, else refuse |
 | confidence ≥ `threshold` | fast path: build the draft |
+| no fallback, and confidence ≥ `clarificationThreshold` (0.5) | ask: a question with two to four candidate capabilities |
 | otherwise | fallback, else refuse |
 
 `threshold` defaults to 0.75 with no fallback (measured on a 1,004-prompt newsroom test set:
@@ -459,6 +460,27 @@ compound guard is catalog-aware: a conjunction joining two declared values of on
 
 A refusal from this stage is the planner's existing `unsupported` result with a written reason,
 so the client's full-site link and refusal handling are unchanged.
+
+**The uncertain band asks, still without a model.** In model-only mode the band between
+`clarificationThreshold` and `threshold` holds many prompts the classifier nearly got right
+("show puzzle" at 0.6 against `puzzles.list`), and refusing them wastes the visitor's intent.
+Such a decision becomes the planner's existing `needs-clarification` result — a fixed question
+and two to four `candidates`, each `{capabilityId, label}` — built by `systemOneCandidates` from
+the decision and the catalog alone: the model's pick first, then advertised capabilities with a
+reason to be offered (a per-choice probability of at least 0.1 when the endpoint reports the
+distribution, which `laya-serve` does, or a word the prompt shares with the capability's purpose
+line or one of its declared values), ranked by probability, then shared words, then catalog
+order, padded to two in catalog order and capped at four. Labels are the first clause of each
+purpose line, bounded to 60 characters. Nothing is generated; `none` is never offered; a catalog
+advertising a single capability cannot offer a choice and refuses as before. The planner checks
+every candidate against the contract's advertised ids and drops the rest. Picking a chip composes
+the original prompt again with `capabilityId` set: the server rejects an id the catalog does not
+hold before planning, passes it as `planning.chosenCapabilityId` with the question branch removed,
+and the provider plans that capability from the catalog by `routeChosenCapability` — no decision
+call, no language model, the same guards and the same validation, recorded on the `classify`
+event as reason `chosen`. The question itself is recorded as path `clarify` with `candidateIds`,
+so a host can count how often chips are shown and which are picked. With a fallback the band
+goes to the language model as before and no question is asked.
 
 **Shadow mode.** With `shadow: true` and a fallback, every prompt goes to the language model
 and the decision is only recorded: `onModelCall` receives a `classify` event beside the `plan`
@@ -547,9 +569,13 @@ Current failure behavior is explicit:
   after its repair attempts. A failed revision keeps the previous validated
   view; a failed initial compose has no automatic grounded-link fallback.
 - With System One configured and no fallback, every prompt the rules do not
-  take — low confidence, a guard, a revision, an unreachable model server — is
-  an `unsupported` result with a reason the visitor can act on. With a fallback,
-  those prompts cost one language-model compose, exactly as without System One.
+  take — a guard, a revision, an unreachable model server, confidence below
+  the clarification bar — is an `unsupported` result with a reason the visitor
+  can act on. Confidence in the band just under the fast-path bar is a
+  `needs-clarification` result with capability candidates instead; picking one
+  plans without a model, and the chips carry a "show me the full site" way
+  out. With a fallback, those prompts cost one language-model compose, exactly
+  as without System One.
 - Streaming emits pending slots before data settles. Data-request failures are
   isolated per slot, and successful slots remain renderable in a partial view.
 - A drifted saved view is attempted against current catalogs. Compatible plans

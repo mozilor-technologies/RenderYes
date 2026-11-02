@@ -227,6 +227,7 @@ planProviders: [
     fallback: { id: "openai", apiKeyEnv: "OPENAI_API_KEY", model: "gpt-5-mini" },
     // threshold: 0.85,        // 0.75 with no fallback, 0.85 with one
     // refusalThreshold: 0.98, // skip the fallback on a confident "none"
+    // clarificationThreshold: 0.5, // no fallback only: ask between here and threshold"
     // timeoutMs: 3000,        // a timeout is low confidence, never an error
     // apiKeyEnv: "SYSTEM_ONE_TOKEN", // the NAME of a bearer token variable, for a hosted endpoint
     // shadow: true,           // measure first: the fallback answers, the decision is logged
@@ -273,6 +274,26 @@ language model agreed. Watch the agreement rate at your threshold, then drop
 **No language model at all** is a supported configuration: omit `fallback`.
 `GET /api/providers` reports the entry as `system-one:<model>` (or
 `system-one:<model>+<fallback model>`), never as a language model.
+
+**The uncertain band asks instead of refusing** in that configuration. A
+decision with confidence at or above `clarificationThreshold` (default 0.5)
+and below `threshold` comes back as a clarification — `kind:
+"needs-clarification"` with a fixed question and two to four `candidates`,
+each `{ capabilityId, label }` — rather than as an `unsupported` refusal. The
+candidates are read from your catalog, never generated: the classifier's pick
+first, then capabilities whose purpose line or declared enum values share a
+word with the prompt (or that the endpoint's own probabilities rank above
+0.1), labelled with the first clause of their purpose line. `@renderyes/react`
+renders them as chips under the question with a "None of these — show me the
+full site" link, and a pick composes the same prompt again with `capabilityId`
+set; that compose builds the view from the catalog with **no model call** and
+asks nothing further. Below `clarificationThreshold` the prompt is refused as
+before; set `clarificationThreshold` to `threshold` or above to turn the
+question off. With a `fallback` the band goes to the language model and this
+never fires. Both halves land on the `classify` event: path `clarify` with
+`candidateIds` when chips are shown, reason `chosen` with
+`chosenCapabilityId` when one is picked — count the two to learn whether the
+band is earning its place.
 
 The model server is yours to run and keep warm; a cold call exceeds
 `timeoutMs` and is treated as low confidence. Every fast-path draft goes
@@ -785,11 +806,30 @@ question and the answer, because the answer alone is not a request. It also
 sets `answersClarification` on the compose, which removes the question branch
 from the planner's contract for that call, making a second question impossible.
 
+A question can also carry `candidates` — approved capabilities, each
+`{ capabilityId, label }` — when a System One planner with no language model
+was unsure which capability the prompt meant (section 2.1). The shipped parts
+render those as chips; a host building its own surface answers with
+`chooseCandidate(capabilityId)` instead of `answerClarification`, which sends
+the original prompt with `capabilityId` beside it rather than a sentence, so
+the server plans that capability with no model call. `options` carries the
+same labels for a surface that renders strings only; answering one of those
+as text goes through `answerClarification` and, with no language model
+configured, is refused — the id is the model-free path. Pass `onExit` or
+`fullSiteHref` to `ViewPage` to say where the chips' "show me the full site"
+link goes; by default it is the page the visitor is on, which under the
+launcher's dialog is the full site already.
+
 Server-side the same thing is `{ kind: "needs-clarification", question,
-options }` on the compose result, and `RUN_ERROR` with those fields when
-streaming. It rides `RUN_ERROR` because `parseComposeEvent` drops frames whose
-type it does not recognise: a third terminal event type would be invisible to
-every existing client, which would then wait for a terminal event that never
+options, candidates }` on the compose result, and `RUN_ERROR` with those
+fields when streaming. Answering by capability is `capabilityId` on the
+compose request (`POST /api/compose` body, or
+`composeAgainstPublishedCatalogs({ capabilityId })`); the server rejects an id
+the published catalog does not hold before anything is planned, and treats a
+pick as the answer to the question, so no second question is possible. It
+rides `RUN_ERROR` because `parseComposeEvent` drops frames whose type it does
+not recognise: a third terminal event type would be invisible to every
+existing client, which would then wait for a terminal event that never
 arrived.
 
 `ComposeMetrics.outcome` counts it separately from both success and failure. A

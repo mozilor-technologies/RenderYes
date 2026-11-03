@@ -223,7 +223,9 @@ export type SystemOneReason =
   /** A compound prompt answered as one panel per part, each decided on its own. */
   | "compound-by-parts"
   /** The host's `override` rule named the capability. */
-  | "host-override";
+  | "host-override"
+  /** The host's `refuse` rule declined the prompt, in its own words. */
+  | "host-refusal";
 
 /**
  * The decision as recorded beside the plan it led to (or, in shadow mode,
@@ -320,6 +322,14 @@ const LEADING_CONJUNCTION =
 export function guardPrompt(
   prompt: string,
   vocabulary: readonly VocabularyHit[] = [],
+  options: {
+    /**
+     * The decided capability takes the prompt as free text (a required
+     * search argument), so a conjunction inside it is part of the query, not
+     * a second ask: a pasted title "Updated and Deployed, but…" is one search.
+     */
+    freeText?: boolean;
+  } = {},
 ): SystemOneGuard | undefined {
   if (INSTRUCTION_OVERRIDE.test(prompt)) return "instruction-override";
   if (ACTION_WORDS.test(prompt)) return "action-verb";
@@ -329,7 +339,7 @@ export function guardPrompt(
   if (PERSONAL_WORDS.test(prompt)) return "personal-data";
   if (EXTERNAL_WORDS.test(prompt)) return "external-data";
   if (IDENTIFIER_WORDS.test(prompt)) return "identifier";
-  if (looksCompound(prompt, vocabulary)) return "compound-prompt";
+  if (!options.freeText && looksCompound(prompt, vocabulary)) return "compound-prompt";
   return undefined;
 }
 
@@ -371,6 +381,8 @@ export interface SystemOneRouteInput {
    */
   clarificationThreshold?: number;
   hasFallback: boolean;
+  /** The decided capability takes the prompt as free text; see `guardPrompt`. */
+  freeText?: boolean;
 }
 
 /** Decides a prompt's path from the decision and the rules. Builds nothing. */
@@ -388,7 +400,9 @@ export function routeSystemOne(input: SystemOneRouteInput): SystemOneRoute {
   // provider adds the result to the view (`mergeIntoPlan`).
   const revisionByRules = input.stage === "revision" && !input.hasFallback;
   if (input.stage !== "initial" && !revisionByRules) return defer(input.stage);
-  const guard = guardPrompt(input.prompt, input.vocabulary);
+  const guard = guardPrompt(input.prompt, input.vocabulary, {
+    freeText: input.freeText === true,
+  });
   if (guard) return defer(guard);
   if (!input.decision.ok) return defer("model-unavailable");
   const { capabilityId, confidence, inScope } = input.decision;
@@ -424,6 +438,8 @@ export interface ChosenCapabilityRouteInput {
   /** Catalog vocabulary matched in the prompt, for the compound rule. */
   vocabulary: readonly VocabularyHit[];
   hasFallback: boolean;
+  /** The chosen capability takes the prompt as free text; see `guardPrompt`. */
+  freeText?: boolean;
 }
 
 /**
@@ -448,7 +464,9 @@ export function routeChosenCapability(input: ChosenCapabilityRouteInput): System
   ) {
     return defer(input.stage);
   }
-  const guard = guardPrompt(input.prompt, input.vocabulary);
+  const guard = guardPrompt(input.prompt, input.vocabulary, {
+    freeText: input.freeText === true,
+  });
   if (guard) return defer(guard);
   if (!input.capabilityIds.includes(input.chosenCapabilityId)) return defer("no-draft");
   return { path: "fast", reason: "chosen", capabilityId: input.chosenCapabilityId };
@@ -1317,6 +1335,21 @@ function isSearchArgument(name: string, argument: Record<string, unknown>): bool
   );
 }
 
+/**
+ * Whether a capability takes the visitor's words as a parameter: a required
+ * search argument. Such a prompt is one ask however many conjunctions it
+ * holds, so the compound guard stands down for it.
+ */
+export function capabilityTakesFreeText(capability: PlannerCapability): boolean {
+  const schema = capability.inputSchema;
+  const required = new Set(
+    Array.isArray(schema.required) ? (schema.required as string[]) : [],
+  );
+  return Object.entries(properties(schema)).some(
+    ([name, argument]) => required.has(name) && isSearchArgument(name, argument),
+  );
+}
+
 function fillParams(
   capability: PlannerCapability,
   vocabulary: readonly VocabularyHit[],
@@ -1551,6 +1584,7 @@ export function systemOneRefusalReason(reason: SystemOneReason): string {
     case "presentation":
     case "compound-by-parts":
     case "host-override":
+    case "host-refusal":
     default:
       return "That request was not clear enough to match to what this site publishes. Try naming what you want to see.";
   }
@@ -1878,6 +1912,46 @@ export function createSystemOnePlanProvider(
     });
   };
 
+  /** Whether a capability takes the prompt as free text, for the compound rule. */
+  const freeTextFor = (capabilityId: string, planning: PlanningContext): boolean => {
+    const capability = planning.plannerManifest.capabilities.find(
+      (candidate) => candidate.id === capabilityId,
+    );
+    return capability ? capabilityTakesFreeText(capability) : false;
+  };
+
+  /** A stage the host's rules may speak at: a fresh prompt, or a revision the rules make. */
+  const hostStage = (stage: PlanningContext["stage"]): boolean =>
+    stage === "initial" || (stage === "revision" && !fallback);
+
+  /**
+   * The host's `refuse`, applied to a decision the endpoint made: a prompt the
+   * site knows is out of scope ("salary" on a question dashboard), declined in
+   * the site's own words. Refused outright, fallback or not — the host said
+   * so — and recorded as `host-refusal` with the rule's reason.
+   */
+  const hostRefused = (
+    prompt: string,
+    decision: SystemOneDecision,
+    stage: PlanningContext["stage"],
+  ): { route: SystemOneRoute; hostRule: string; message: string } | undefined => {
+    if (!hostRules.refuse || !decision.ok || !hostStage(stage)) return undefined;
+    const declined = hostRules.refuse({
+      prompt,
+      decision: {
+        capabilityId: decision.capabilityId,
+        confidence: decision.confidence,
+        inScope: decision.inScope,
+      },
+    });
+    if (!declined || !declined.message.trim()) return undefined;
+    return {
+      route: { path: "refuse", reason: "host-refusal" },
+      hostRule: declined.reason,
+      message: declined.message.replace(/[<>]/g, "").trim(),
+    };
+  };
+
   /**
    * The host's `override`, applied to a decision the endpoint made. Only at a
    * stage the rules answer, and never past a guard: the host names the
@@ -1890,7 +1964,7 @@ export function createSystemOnePlanProvider(
     stage: PlanningContext["stage"],
   ): (SystemOneRoute & { hostRule: string }) | undefined => {
     if (!hostRules.override || !decision.ok) return undefined;
-    if (stage !== "initial" && !(stage === "revision" && !fallback)) return undefined;
+    if (!hostStage(stage)) return undefined;
     const forced = hostRules.override({
       prompt,
       decision: {
@@ -1905,6 +1979,7 @@ export function createSystemOnePlanProvider(
     const guard = guardPrompt(
       prompt,
       vocabularyFor(prompt, forced.capabilityId, planning),
+      { freeText: freeTextFor(forced.capabilityId, planning) },
     );
     if (guard) {
       return {
@@ -1932,6 +2007,8 @@ export function createSystemOnePlanProvider(
     const vocabulary = decision.ok
       ? vocabularyFor(prompt, decision.capabilityId, planning)
       : [];
+    const declined = hostRefused(prompt, decision, stage);
+    if (declined) return { decision, ...declined };
     const forced = overridden(prompt, decision, planning, stage);
     const route: SystemOneRoute =
       forced ??
@@ -1944,8 +2021,9 @@ export function createSystemOnePlanProvider(
         refusalThreshold,
         clarificationThreshold,
         hasFallback: Boolean(fallback),
+        freeText: decision.ok && freeTextFor(decision.capabilityId, planning),
       });
-    return { decision, route, hostRule: forced?.hostRule };
+    return { decision, route, hostRule: forced?.hostRule, message: undefined };
   };
 
   /**
@@ -2100,8 +2178,12 @@ export function createSystemOnePlanProvider(
         const vocabulary = decision.ok
           ? vocabularyFor(prompt, decision.capabilityId, planning)
           : [];
-        const forced = overridden(prompt, decision, planning, planning.stage);
+        const declined = hostRefused(prompt, decision, planning.stage);
+        const forced = declined
+          ? undefined
+          : overridden(prompt, decision, planning, planning.stage);
         const route: SystemOneRoute =
+          declined?.route ??
           forced ??
           routeSystemOne({
             prompt,
@@ -2111,10 +2193,12 @@ export function createSystemOnePlanProvider(
             threshold,
             refusalThreshold,
             hasFallback: true,
+            freeText: decision.ok && freeTextFor(decision.capabilityId, planning),
           });
+        const hostRule = declined?.hostRule ?? forced?.hostRule;
         const classification: SystemOneClassification = {
           ...classify(decision, route),
-          ...(forced ? { hostRule: forced.hostRule } : {}),
+          ...(hostRule ? { hostRule } : {}),
           ...staged,
           shadow: true,
           ...compareWithPlanner(decision, outcome.ok ? outcome.result.value : undefined),
@@ -2136,6 +2220,7 @@ export function createSystemOnePlanProvider(
           capabilityIds: planning.capabilityIds,
           vocabulary: vocabularyFor(prompt, chosen, planning),
           hasFallback: Boolean(fallback),
+          freeText: freeTextFor(chosen, planning),
         });
         return settle(request, planning, route, (taken) => ({
           ...classifyChosen(chosen, taken),
@@ -2169,7 +2254,7 @@ export function createSystemOnePlanProvider(
       // The decision is asked before the guards run, so a guarded prompt is
       // still recorded with what the model would have said — that is the
       // number a host tunes thresholds against.
-      const { decision, route, hostRule } = await routeOne(
+      const { decision, route, hostRule, message } = await routeOne(
         prompt,
         planning,
         planning.stage,
@@ -2180,6 +2265,15 @@ export function createSystemOnePlanProvider(
         ...(hostRule ? { hostRule } : {}),
         ...staged,
       });
+      // The host declined in its own words: final, whatever else is configured.
+      if (route.reason === "host-refusal" && message) {
+        return {
+          modelId,
+          value: { status: "unsupported", reason: message },
+          usage: { calls: 0 },
+          classification: record(route),
+        };
+      }
 
       if (route.reason === "compound-prompt" && !fallback) {
         const split = await compoundByParts(planning, questions);

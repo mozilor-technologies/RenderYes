@@ -221,6 +221,19 @@ export interface SystemOneHostRules {
     capabilityIds: readonly string[];
   }) => { capabilityId: string; reason: string } | undefined;
   /**
+   * Declines a prompt the site knows is out of its scope, in the site's own
+   * words — "salary" on a question dashboard, "scores" on a newspaper — where
+   * the generic guards know only weather, prices and the like. Called once per
+   * decision, before `override`; returning `undefined` leaves the decision
+   * alone. A refusal here is final, fallback or not, and `message` is what the
+   * visitor reads (angle brackets are stripped). `reason` is recorded on the
+   * `classify` event as `hostRule` with reason `host-refusal`.
+   */
+  refuse?: (input: {
+    prompt: string;
+    decision: { capabilityId: string; confidence: number; inScope: number };
+  }) => { reason: string; message: string } | undefined;
+  /**
    * Builds the draft for a capability the host would rather plan itself — a
    * parameter the catalog cannot derive from enums, a heading in the site's
    * voice. Called before the catalog rules for every fast-path capability;

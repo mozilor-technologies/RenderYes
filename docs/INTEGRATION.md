@@ -325,12 +325,25 @@ hostRules: {
   // (a tag from a word the catalog does not declare). Same validation as any
   // draft; return undefined to use the catalog rules.
   draft: ({ prompt, capabilityId, surfaceId }) => undefined,
+  // Decline what your site knows is out of scope, in your own words. The
+  // generic guards know weather, prices and the like; only you know that
+  // "salary" has no answer here. Final, fallback or not.
+  refuse: ({ prompt }) =>
+    /\b(salary|salaries|jobs?)\b/i.test(prompt)
+      ? { reason: "jobs-and-pay", message: "This dashboard has no salary or job data." }
+      : undefined,
 },
 ```
 
 An override lands on the `classify` event as reason `host-override` with your
 `reason` under `hostRule`, beside the model's own pick, so a rule that fires too
-often is visible in the same place a threshold is.
+often is visible in the same place a threshold is; a refusal lands as reason
+`host-refusal` the same way.
+
+One more rule the draft applies on its own: a capability that takes the
+visitor's words as a required search argument is exempt from the compound
+guard, because a pasted title ("Updated and Deployed, but…") is one search
+however many conjunctions it holds.
 
 **Measure before trusting.** `shadow: true` (requires `fallback`) sends every
 prompt to the language model and records the decision beside it: `onModelCall`

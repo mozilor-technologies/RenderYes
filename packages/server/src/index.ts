@@ -99,6 +99,7 @@ export {
   askSystemOne,
   buildSystemOneDraft,
   buildSystemOneQuestions,
+  capabilityTakesFreeText,
   componentKind,
   createSystemOnePlanProvider,
   guardPrompt,

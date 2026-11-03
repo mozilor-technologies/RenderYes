@@ -3,9 +3,11 @@ import test from "node:test";
 import http from "node:http";
 import {
   appendDraft,
+  capabilityTakesFreeText,
   componentKind,
   createSystemOnePlanProvider,
   createViewServer,
+  guardPrompt,
   isPresentationOnly,
   presentationCue,
   searchTermsFrom,
@@ -1000,4 +1002,67 @@ test("through the server: a revise with no language model adds a panel, and a pr
   } finally {
     await upstream.close();
   }
+});
+
+/* ------------------------------------ free text, and the host's refusals */
+
+const PASTED_TITLE =
+  "SPFx Solution Updated and Deployed, but SharePoint Continues to Execute Old Code";
+DECISIONS[PASTED_TITLE] = {
+  choice: "pulse.questions.search",
+  confidence: 0.9,
+  inScope: 0.95,
+};
+DECISIONS["average salary for a python developer"] = {
+  choice: "pulse.questions.search",
+  confidence: 0.88,
+  inScope: 0.9,
+};
+
+test("a pasted title with a conjunction inside it is one search, not a compound prompt", async () => {
+  const search = plannerManifest.capabilities.find(
+    (c) => c.id === "pulse.questions.search",
+  );
+  const list = plannerManifest.capabilities.find((c) => c.id === "pulse.questions.list");
+  assert.equal(capabilityTakesFreeText(search), true);
+  assert.equal(capabilityTakesFreeText(list), false);
+  assert.equal(guardPrompt(PASTED_TITLE), "compound-prompt");
+  assert.equal(guardPrompt(PASTED_TITLE, [], { freeText: true }), undefined);
+  const provider = systemOne(scriptedDecisions(DECISIONS));
+  const result = await compose(provider, PASTED_TITLE);
+  assert.equal(result.ok, true, result.ok ? "" : result.reason);
+  assert.equal(requestsOf(result.plan)[0].capabilityId, "pulse.questions.search");
+  assert.equal(requestsOf(result.plan)[0].params.q, PASTED_TITLE);
+  assert.equal(nodesOf(result.plan).length, 1);
+  // A list capability with the same conjunction is still compound.
+  const compound = await compose(provider, "python questions and the reader polls");
+  assert.equal(compound.ok, false);
+});
+
+test("hostRules.refuse declines a prompt in the site's own words, final and recorded", async () => {
+  const refuse = ({ prompt }) =>
+    /\b(salary|salaries|jobs?)\b/i.test(prompt)
+      ? {
+          reason: "jobs-and-pay",
+          message:
+            "This dashboard knows questions, tags and answerers; it has no salary or job data.",
+        }
+      : undefined;
+  const provider = systemOne(scriptedDecisions(DECISIONS), { hostRules: { refuse } });
+  const declined = await compose(provider, "average salary for a python developer");
+  assert.equal(declined.ok, false);
+  assert.equal(declined.kind, "unsupported");
+  assert.match(declined.reason, /no salary or job data/);
+  const classified = provider.classified.at(-1);
+  assert.equal(classified.path, "refuse");
+  assert.equal(classified.reason, "host-refusal");
+  assert.equal(classified.hostRule, "jobs-and-pay");
+  assert.equal(
+    classified.capabilityId,
+    "pulse.questions.search",
+    "the model's own pick is kept",
+  );
+  // Everything else is untouched.
+  const fine = await compose(provider, "python questions");
+  assert.equal(fine.ok, true, fine.ok ? "" : fine.reason);
 });

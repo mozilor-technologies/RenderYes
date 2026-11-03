@@ -320,7 +320,7 @@ const TagBarChart = defineComponent({
 const TagTable = defineComponent({
   id: "TagTable",
   version: "1.0.0",
-  description: "A breakdown table of tag counts.",
+  description: "A breakdown table of tag counts, for exact figures instead of a chart.",
   props: defineProps({ heading: field.string({ default: "Breakdown" }) }),
   renderer: { component: "TagTable", props: { rows: { path: "/rows" } } },
   dataSlots: { rows: { accepts: [{ dataTypeId: "TagCount", shapes: ["collection"] }] } },
@@ -416,6 +416,7 @@ const DECISIONS = {
   ...sure("pulse.tags.top", [
     "top tags",
     "the top tags",
+    "and the top tags",
     "top tags as a table",
     "top five tags",
   ]),
@@ -497,6 +498,24 @@ test("a typed refinement with no language model adds its panel to the view on sc
   assert.equal(provider.classified[1].stage, "revision");
   assert.equal(provider.classified[1].path, "fast");
   assert.equal(decisions.requests.length, 2);
+});
+
+test("a refinement that opens with 'and' is one ask joined to the view, not a compound prompt", async () => {
+  const provider = systemOne(scriptedDecisions(DECISIONS));
+  const first = await compose(provider, "python questions");
+  const second = await compose(provider, "and the top tags", {
+    previousPlan: first.plan,
+  });
+  assert.equal(second.ok, true, second.ok ? "" : second.reason);
+  assert.deepEqual(
+    nodesOf(second.plan).map((node) => node.componentId),
+    ["QuestionTable", "TagBarChart"],
+  );
+  assert.equal(splitCompound("and the top tags"), undefined);
+  assert.deepEqual(splitCompound("and the top tags and how many questions"), [
+    "the top tags",
+    "how many questions",
+  ]);
 });
 
 test("the view is bounded by the surface's maxComponents: the oldest panel is dropped, and its request with it", async () => {
@@ -641,7 +660,11 @@ test("presentation cues and component kinds are read from words, never inferred"
   assert.equal(isPresentationOnly("top tags as a table"), false);
   assert.equal(isPresentationOnly("python"), false);
   assert.equal(componentKind(site.getComponent("TagBarChart")), "chart");
-  assert.equal(componentKind(site.getComponent("TagTable")), "table");
+  assert.equal(
+    componentKind(site.getComponent("TagTable")),
+    "table",
+    "the id wins over 'instead of a chart'",
+  );
   assert.equal(componentKind(site.getComponent("AnswererList")), "table");
   assert.equal(componentKind(site.getComponent("CountCard")), undefined);
 });

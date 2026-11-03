@@ -289,7 +289,7 @@ const INSTRUCTION_OVERRIDE =
   /\b(ignore|disregard|forget|override)\b.{0,40}\b(instructions?|rules?|prompts?|guidelines?)|\b(system|developer) (prompt|message|instructions?)\b|\byou are now\b|\bjailbreak\b|\bapi[ _-]?keys?\b|\bsecrets?\b|\bpasswords?\b|\bcredentials?\b|\baccess tokens?\b|\bbearer\b|<script|```/i;
 /** An action verb: the visitor wants to do something, and this product only shows. */
 const ACTION_WORDS =
-  /\b(vote|voting|subscribe|unsubscribe|comment|commenting|delete|remove|edit|update|submit|send|post a|write a|reply|log ?in|log ?out|sign ?in|sign ?up|register|cancel|share|email me|notify|download|print|buy|purchase|order a|book a|reserve|pay|checkout|transfer)\b/i;
+  /\b((?:up|down)?vote|voting|subscribe|unsubscribe|comment|commenting|delete|remove|edit|update|submit|send|post a|write a|reply|log ?in|log ?out|sign ?in|sign ?up|register|cancel|share (?:this|it|that|them|these|with|on|to|via|by)|email me|notify|download|print|buy|purchase|order a|book a|reserve|pay|checkout|transfer)\b/i;
 /** The visitor's own saved or private activity: data the approved read catalog does not hold. */
 const PERSONAL_WORDS =
   /\bmy (saved|past|previous|own|earlier|recent)\b|\bmy (votes?|responses?|answers?|account|profile|subscription|history|bookmarks?|orders?|cart|basket|payments?|invoices?)\b|\bmy \w+ history\b|\bsaved (articles|views|stories|items|searches)\b|\bbookmarked\b/i;
@@ -308,6 +308,13 @@ const IDENTIFIER_WORDS = /#\s?\d+|\b\d{4,}\b|\b[A-Za-z]{1,4}-\d{2,}\b/;
 /** Joins two asks into one prompt. */
 const CONJUNCTION =
   /\b(and|plus|along with|together with|as well as|alongside|also)\b|&/i;
+/**
+ * A conjunction that opens the prompt joins it to the view on screen, not to
+ * a second ask: "and the top tags" typed under a view is one ask. Stripped
+ * before the compound rule looks for a conjunction between two asks.
+ */
+const LEADING_CONJUNCTION =
+  /^\s*(?:(?:and|plus|along with|together with|as well as|alongside|also)\b|&)\s*/i;
 
 /** The first guard a prompt trips, in fixed order, or undefined when none does. */
 export function guardPrompt(
@@ -336,7 +343,7 @@ export function looksCompound(
   prompt: string,
   vocabulary: readonly VocabularyHit[],
 ): boolean {
-  if (!CONJUNCTION.test(prompt)) return false;
+  if (!CONJUNCTION.test(prompt.replace(LEADING_CONJUNCTION, ""))) return false;
   const perField = new Map<string, number>();
   for (const hit of vocabulary) {
     const key = `${hit.kind}:${hit.name}`;
@@ -468,6 +475,7 @@ const MAX_COMPOUND_PARTS = 3;
  */
 export function splitCompound(prompt: string): string[] | undefined {
   const parts = prompt
+    .replace(LEADING_CONJUNCTION, "")
     .split(CONJUNCTION_SPLIT)
     .map((part) =>
       part
@@ -521,11 +529,20 @@ export function isPresentationOnly(prompt: string): boolean {
 export function componentKind(
   component: SiteComponentDefinition,
 ): PresentationKind | undefined {
-  const text = `${component.id} ${component.description ?? ""}`;
-  if (/chart|graph|plot|\bbars?\b|\bline\b|donut|\bpie\b|sparkline/i.test(text))
-    return "chart";
-  if (/table|grid|\blist\b|\brows\b/i.test(text)) return "table";
-  return undefined;
+  // The id first: "StarterBreakdownTable" is a table whatever its description
+  // says about charts ("…exact figures instead of a chart"), and an item list
+  // whose description says "one line each" is not a line chart. Only an id
+  // that names neither falls back to the description's first sentence.
+  const kindOf = (text: string): PresentationKind | undefined => {
+    if (/chart|graph|plot|\bbars?\b|\bline\b|donut|\bpie\b|sparkline/i.test(text))
+      return "chart";
+    if (/table|grid|\blist\b|\brows\b/i.test(text)) return "table";
+    return undefined;
+  };
+  const byId = kindOf(component.id.replace(/([a-z])([A-Z])/g, "$1 $2"));
+  if (byId) return byId;
+  const firstSentence = (component.description ?? "").split(/(?<=[.!?])\s/)[0] ?? "";
+  return kindOf(firstSentence);
 }
 
 /* ------------------------------------------------------------------------ */

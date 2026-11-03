@@ -8,7 +8,7 @@ import { SurfaceErrorBoundary, ViewSurface } from "./surface.js";
 /**
  * Per-panel rendering for a composed multi-panel view: one wrapper per
  * top-level panel, each carrying its own control row (grip to rearrange, pin
- * to keep), rendered from a single message processor.
+ * to keep, × to remove), rendered from a single message processor.
  *
  * This exists because of how the A2UI renderer keys a container's children:
  * `ChildList` keys each child `${childRef}-${index}` — the *position* is part
@@ -179,6 +179,10 @@ export const PANEL_STYLES = `
   padding: 3px 7px; cursor: grab; touch-action: none; }
 .renderyes-scope .renderyes-grip:hover { background: #eef1f4; color: var(--iv-fg); }
 .renderyes-scope .renderyes-grip:active { cursor: grabbing; }
+.renderyes-scope .renderyes-remove { border: 1px solid var(--iv-border); border-radius: 8px;
+  background: rgba(255,255,255,.92); color: var(--iv-muted); font-size: 14px; line-height: 1;
+  font-weight: 600; padding: 3px 8px; cursor: pointer; }
+.renderyes-scope .renderyes-remove:hover { background: #eef1f4; color: var(--iv-danger); }
 .renderyes-scope .renderyes-dropline { position: absolute; left: 0; right: 0; height: 2px;
   background: var(--iv-accent); border-radius: 1px; pointer-events: none; z-index: 2; }
 `;
@@ -265,7 +269,14 @@ export interface SurfacePanelsProps {
   rearrangeable: boolean;
   /** Receives the full new order — every current nodeId exactly once. */
   onReorder: (nodeIds: readonly string[]) => void;
-  /** True in `renderMode: "host"`, where inline fallback styles must apply. */
+  /**
+   * Renders a × in each panel's control row on a multi-panel view. Never on
+   * a single panel: the server refuses to empty a view, and a control that
+   * can only fail teaches that removing is broken rather than unavailable.
+   */
+  removable: boolean;
+  /** Receives the nodeId of the panel to drop; the caller sends the `removeNode` refinement. */
+  onRemove: (nodeId: string) => void;
 }
 
 /**
@@ -284,6 +295,8 @@ export function SurfacePanels({
   onPin,
   rearrangeable,
   onReorder,
+  removable,
+  onRemove,
 }: SurfacePanelsProps) {
   const { catalog, config } = useView();
   const panels = useMemo(() => topLevelPanelIds(messages), [messages]);
@@ -297,14 +310,12 @@ export function SurfacePanels({
   const hostOverridesColumn =
     (catalog.components as ReadonlyMap<string, unknown>).get("Column") !==
     (basicCatalog.components as ReadonlyMap<string, unknown>).get("Column");
-  const takeOver =
-    root !== null && root.component === "Column" && !hostOverridesColumn;
+  const takeOver = root !== null && root.component === "Column" && !hostOverridesColumn;
 
   // One processor for the whole view, exactly like `ViewSurface` — see its
   // comments for why per-message-set, memoized, and caught rather than thrown.
   const { surface, processError } = useMemo(() => {
-    if (!takeOver || messages.length === 0)
-      return { surface: null, processError: null };
+    if (!takeOver || messages.length === 0) return { surface: null, processError: null };
     try {
       const processor = new MessageProcessor([catalog]);
       processor.processMessages([...messages]);
@@ -397,27 +408,43 @@ export function SurfacePanels({
   // reordering understands", and a grip that shuffles what a host's own
   // Column would then re-lay-out its own way promises something it can't keep.
   const grips = rearrangeable && takeOver && panels.length > 1;
+  // Removing is a plan edit the server applies, not a layout this component
+  // owns, so unlike the grip it is honest on both render paths.
+  const removes = removable && panels.length > 1;
+
+  const removeButton = (nodeId: string, index: number) => (
+    <button
+      className="renderyes-remove"
+      onClick={() => onRemove(nodeId)}
+      aria-label={`Remove panel ${index + 1} of ${panels.length}`}
+      title="Remove this panel"
+    >
+      ×
+    </button>
+  );
 
   if (!takeOver) {
     // The previous render path, unchanged from the pin commit: one narrowed
     // surface per panel, a pin in its corner, no grips.
-    if (!pinnable) return <ViewSurface messages={messages} />;
+    if (!pinnable && !removes) return <ViewSurface messages={messages} />;
     return (
       <RenderBoundary mode={renderMode} styles={config.styles}>
         {panels.map((nodeId, index) => (
-          <div
-            key={nodeId}
-            className="renderyes-panel"
-          >
+          <div key={nodeId} className="renderyes-panel">
             {showControls ? (
-              <button
-                className="renderyes-pin"
-                onClick={() => onPin(nodeId)}
-                aria-label="Pin this panel"
-                title="Pin this panel"
-              >
-                Pin
-              </button>
+              <div className="renderyes-panel-controls">
+                {pinnable ? (
+                  <button
+                    className="renderyes-pin"
+                    onClick={() => onPin(nodeId)}
+                    aria-label="Pin this panel"
+                    title="Pin this panel"
+                  >
+                    Pin
+                  </button>
+                ) : null}
+                {removes ? removeButton(nodeId, index) : null}
+              </div>
             ) : null}
             <ViewSurface messages={splitSets.get(nodeId) ?? messages} />
           </div>
@@ -461,18 +488,11 @@ export function SurfacePanels({
                   style={{ top: -7 }}
                 />
               ) : null}
-              {drag &&
-              index === panels.length - 1 &&
-              drag.dropIndex === panels.length ? (
-                <div
-                  className="renderyes-dropline"
-                  style={{ bottom: -7 }}
-                />
+              {drag && index === panels.length - 1 && drag.dropIndex === panels.length ? (
+                <div className="renderyes-dropline" style={{ bottom: -7 }} />
               ) : null}
-              {showControls && (grips || pinnable) ? (
-                <div
-                  className="renderyes-panel-controls"
-                >
+              {showControls && (grips || pinnable || removes) ? (
+                <div className="renderyes-panel-controls">
                   {grips ? (
                     <button
                       className="renderyes-grip"
@@ -505,6 +525,7 @@ export function SurfacePanels({
                       Pin
                     </button>
                   ) : null}
+                  {removes ? removeButton(nodeId, index) : null}
                 </div>
               ) : null}
               <DeferredChild surface={surface} id={nodeId} basePath="/" />

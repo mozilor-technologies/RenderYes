@@ -177,8 +177,74 @@ export interface SystemOneProviderConfig {
    * it.
    */
   shadow?: boolean;
+  /**
+   * Keep the model server warm: ping the decision endpoint every this many
+   * milliseconds with a fixed two-word prompt, skipping a tick while a real
+   * decision is in flight. Off when unset. A small model server unloads or
+   * cools between visitors, and a cold decision exceeds `timeoutMs` and reads
+   * as low confidence; on a 2-vCPU box the first warm decision after a pause
+   * measured 7 s. The timer never keeps the process alive.
+   */
+  keepWarmMs?: number;
+  /**
+   * The host's own routing and drafting rules, applied after the decision and
+   * before the catalog's rules. Both are optional and both are the host's code
+   * reading the visitor's prompt against its own catalog; nothing here reaches
+   * the decision model. See `SystemOneHostRules`.
+   */
+  hostRules?: SystemOneHostRules;
   /** Injectable for tests; defaults to the global `fetch`. */
   fetchImpl?: typeof fetch;
+}
+
+/**
+ * Where a host corrects the generic rules with what it knows about its own
+ * visitors. Every site that ran the fast path for a while found two or three
+ * confusions the decision model makes on its vocabulary — a trend word read as
+ * a list, a search capability soaking up short prompts that name a tag — and
+ * the fix belongs beside the catalog, not in this package.
+ */
+export interface SystemOneHostRules {
+  /**
+   * Sends a prompt to a capability the host names, overriding the decision —
+   * or rescuing a `none` or an unsure pick. Called once per decision the
+   * endpoint made, before the thresholds are applied; returning `undefined`
+   * leaves the decision alone. The returned id must be advertised, or the
+   * override is ignored. `reason` is a short stable token recorded on the
+   * `classify` event as `hostRule`, so overrides are counted, never silent.
+   * Guards still apply: an action, an identifier or someone else's records
+   * is refused whatever this returns.
+   */
+  override?: (input: {
+    prompt: string;
+    decision: { capabilityId: string; confidence: number; inScope: number };
+    capabilityIds: readonly string[];
+  }) => { capabilityId: string; reason: string } | undefined;
+  /**
+   * Builds the draft for a capability the host would rather plan itself — a
+   * parameter the catalog cannot derive from enums, a heading in the site's
+   * voice. Called before the catalog rules for every fast-path capability;
+   * returning `undefined` hands the prompt to the catalog rules. The draft
+   * goes through the same validation as any other; it can bind only
+   * components and capabilities the catalog approves.
+   */
+  draft?: (input: { prompt: string; capabilityId: string; surfaceId: string }) =>
+    | {
+        status: "ready";
+        dataRequests: Array<{
+          requestId: string;
+          capabilityId: string;
+          params: Record<string, unknown>;
+          query?: unknown;
+        }>;
+        nodes: Array<{
+          nodeId: string;
+          componentId: string;
+          props: Record<string, unknown>;
+          dataBindings: Record<string, { requestId: string }>;
+        }>;
+      }
+    | undefined;
 }
 
 /** The fast-path confidence bar in model-only mode. Measured on a 1,004-prompt newsroom test set: 62% of prompts taken at 98.4% precision. */
@@ -463,7 +529,9 @@ export function structuredOutputSchema(
   const known: ReadonlyMap<string, unknown> = defsForRoot
     ? new Map(Object.entries(defsForRoot))
     : EMPTY_DEFINITIONS;
-  const root = withObjectRoot(simplifyForStructuredMode(schema, maxDepth, known, forwardRefs));
+  const root = withObjectRoot(
+    simplifyForStructuredMode(schema, maxDepth, known, forwardRefs),
+  );
   if (!forwardRefs || !defsForRoot) return root;
   // The definitions travel with the references, or every one of them dangles.
   return {
@@ -489,7 +557,8 @@ function definitionNameOf(ref: string): string | undefined {
 
 /** The `$defs` a schema carries at its root, when it carries any. */
 function definitionsOf(schema: unknown): Record<string, unknown> | undefined {
-  if (typeof schema !== "object" || schema === null || Array.isArray(schema)) return undefined;
+  if (typeof schema !== "object" || schema === null || Array.isArray(schema))
+    return undefined;
   const defs = (schema as Record<string, unknown>).$defs;
   if (typeof defs !== "object" || defs === null || Array.isArray(defs)) return undefined;
   return defs as Record<string, unknown>;
@@ -607,11 +676,15 @@ export function oversizedParamsSchemas(
         if (bytes >= threshold) {
           const identifier = bag.capabilityId as { const?: unknown } | undefined;
           const capabilityId =
-            typeof identifier?.const === "string" ? identifier.const : "(unnamed capability)";
+            typeof identifier?.const === "string"
+              ? identifier.const
+              : "(unnamed capability)";
           found.push({
             capabilityId,
             bytes,
-            ...(largestArgumentOf(params) ? { largestArgument: largestArgumentOf(params) } : {}),
+            ...(largestArgumentOf(params)
+              ? { largestArgument: largestArgumentOf(params) }
+              : {}),
           });
         }
       }
@@ -709,13 +782,17 @@ function simplifyForStructuredMode(
       case "anyOf":
         if (Array.isArray(value)) {
           branches.push(
-            ...value.map((branch) => simplifyForStructuredMode(branch, depth - 1, known, forwardRefs)),
+            ...value.map((branch) =>
+              simplifyForStructuredMode(branch, depth - 1, known, forwardRefs),
+            ),
           );
         }
         break;
       case "allOf":
         if (Array.isArray(value)) {
-          out.allOf = value.map((branch) => simplifyForStructuredMode(branch, depth - 1, known, forwardRefs));
+          out.allOf = value.map((branch) =>
+            simplifyForStructuredMode(branch, depth - 1, known, forwardRefs),
+          );
         }
         break;
       case "items":
@@ -962,8 +1039,7 @@ async function requestGemini(
         // which moved the adapter from a real endpoint to a nonexistent one.
         // Endpoint claims about this adapter get settled by probing the live
         // service, never by assertion; see the key-gated smoke test.
-        config.baseUrl ??
-          "https://generativelanguage.googleapis.com/v1beta/interactions",
+        config.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta/interactions",
         {
           signal,
           method: "POST",

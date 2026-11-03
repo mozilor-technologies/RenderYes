@@ -110,6 +110,19 @@ export interface ViewPageProps {
    */
   rearrange?: boolean;
   /**
+   * Renders a × on each panel of a multi-panel view that drops that panel
+   * through one `removeNode` refinement. Defaults to on.
+   *
+   * The same server requirement as `rearrange`: `/api/refine` is
+   * plan-addressed, so a host with no `resolveViewOwner` must pass `false`.
+   * Never rendered on a single-panel view, because the server refuses to
+   * empty a view — resetting is a different action than refining. The panel
+   * strip exists because a visitor who refines a view three times ends up
+   * with a panel they no longer want, and typing "remove the chart" is an
+   * action verb the planner rightly refuses.
+   */
+  removePanels?: boolean;
+  /**
    * The arrangement to render inside the page.
    *
    * Omitted, the page renders the standard one below — a prompt row with the
@@ -146,6 +159,7 @@ export function ViewPage({
   suggestions,
   savedViews = true,
   rearrange = true,
+  removePanels = true,
   children,
 }: ViewPageProps) {
   const { config } = useView();
@@ -161,7 +175,11 @@ export function ViewPage({
           only way to turn it off without leaving a Save button whose menu is
           missing. */}
       <ViewChromeOptionsProvider
-        options={{ savedViewsEnabled: savedViews, rearrangeEnabled: rearrange }}
+        options={{
+          savedViewsEnabled: savedViews,
+          rearrangeEnabled: rearrange,
+          removeEnabled: removePanels,
+        }}
       >
         {/* Applied in both modes: the chrome stylesheet is namespaced under
             this class, and host mode now receives that stylesheet rather

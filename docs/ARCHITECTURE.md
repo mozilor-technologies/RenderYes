@@ -69,14 +69,14 @@ defineComponent({
   props: defineProps({ title: field.string() }),
   renderer: {
     component: "timeline",
-    props: { items: { path: "/items" } }
+    props: { items: { path: "/items" } },
   },
   dataSlots: {
     items: {
-      accepts: [{ dataTypeId: "event", shapes: ["collection"] }]
-    }
-  }
-})
+      accepts: [{ dataTypeId: "event", shapes: ["collection"] }],
+    },
+  },
+});
 ```
 
 The planner may only reference component `id`s that exist in this catalog. It cannot introduce new
@@ -442,16 +442,20 @@ One: the repair attempt goes to the fallback, or is refused.
 
 **Threshold rules**, in order:
 
-| condition | path |
-| --- | --- |
-| stage is a revision, a repair, or a clarification answer | fallback, else refuse |
-| a guard fires: instruction override, action verb, other person's records, visitor's own private data, external or live data, an identifier, a compound prompt | fallback, else refuse |
-| the decision could not be made: timeout, non-200, unreadable or unadvertised choice | treated as low confidence: fallback, else refuse |
-| choice is `none`, confidence ≥ `refusalThreshold` (0.98) and in-scope < 0.5 | refuse without a model |
-| choice is `none` otherwise | fallback, else refuse |
-| confidence ≥ `threshold` | fast path: build the draft |
-| no fallback, and confidence ≥ `clarificationThreshold` (0.5) | ask: a question with two to four candidate capabilities |
-| otherwise | fallback, else refuse |
+| condition                                                                                                                                  | path                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| stage is a repair or a clarification answer                                                                                                | fallback, else refuse                                                                                                                                                                                                        |
+| stage is a revision                                                                                                                        | fallback; with no fallback, decided like a fresh prompt and the panel added to the view on screen, bounded by the surface's `maxComponents` (four when undeclared), oldest dropped first                                     |
+| the prompt names only a presentation ("as a table") on a revision with no fallback                                                         | the last panel re-rendered by another accepting component of that kind, no decision asked                                                                                                                                    |
+| a guard fires: instruction override, action verb, other person's records, visitor's own private data, external or live data, an identifier | fallback, else refuse                                                                                                                                                                                                        |
+| the compound guard fires                                                                                                                   | fallback; with no fallback, the prompt is split at its conjunction into two or three parts of at least two words, each decided on its own: one panel per part when every part is confident and draftable, else refused whole |
+| the host's `hostRules.override` names an advertised capability                                                                             | fast path with that capability, reason `host-override`, unless a guard fires; the rule's reason is recorded as `hostRule`                                                                                                    |
+| the decision could not be made: timeout, non-200, unreadable or unadvertised choice                                                        | treated as low confidence: fallback, else refuse                                                                                                                                                                             |
+| choice is `none`, confidence ≥ `refusalThreshold` (0.98) and in-scope < 0.5                                                                | refuse without a model                                                                                                                                                                                                       |
+| choice is `none` otherwise                                                                                                                 | fallback, else refuse                                                                                                                                                                                                        |
+| confidence ≥ `threshold`                                                                                                                   | fast path: build the draft (`hostRules.draft` first, then the catalog rules); with no fallback, a draft the catalog cannot supply a value for becomes a question with the other capabilities                                 |
+| no fallback, and confidence ≥ `clarificationThreshold` (0.5)                                                                               | ask: a question with two to four candidate capabilities                                                                                                                                                                      |
+| otherwise                                                                                                                                  | fallback, else refuse                                                                                                                                                                                                        |
 
 `threshold` defaults to 0.75 with no fallback (measured on a 1,004-prompt newsroom test set:
 62% of prompts taken at 98.4% precision) and 0.85 with one, where deferring is cheap. The
@@ -460,6 +464,15 @@ compound guard is catalog-aware: a conjunction joining two declared values of on
 
 A refusal from this stage is the planner's existing `unsupported` result with a written reason,
 so the client's full-site link and refusal handling are unchanged.
+
+Two more values the draft reads from the prompt rather than the catalog, both the visitor's own
+text passed through as a heading is: a **required free-text search argument** (`q`, `query`,
+`search`, `term(s)`, `keyword(s)`, `text`; string, no declared values) takes the prompt with the
+asking stripped off both ends, and a **presentation cue** ("as a table", "as a chart") picks,
+among the components that accept the data, one whose id or description names that kind. Neither
+invents a catalog value; a prompt that names nothing to search for is a missing value, and a
+kind the surface has no component for is refused. `keepWarmMs` pings the model server on a
+timer, skipping a tick while a decision is in flight, because a cold decision is a timeout.
 
 **The uncertain band asks, still without a model.** In model-only mode the band between
 `clarificationThreshold` and `threshold` holds many prompts the classifier nearly got right

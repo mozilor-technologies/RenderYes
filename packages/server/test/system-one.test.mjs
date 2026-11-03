@@ -480,7 +480,7 @@ test("routing: a decision that could not be made is low confidence, never an err
   });
 });
 
-test("routing: revisions, repairs and clarification answers never take the fast path", () => {
+test("routing: repairs and clarification answers never take the fast path; a revision does only with no language model", () => {
   for (const stage of ["revision", "repair", "clarification-answer"]) {
     assert.deepEqual(
       route(decided("news.posts.list", 0.99), { stage, hasFallback: true }),
@@ -489,8 +489,17 @@ test("routing: revisions, repairs and clarification answers never take the fast 
         reason: stage,
       },
     );
+  }
+  for (const stage of ["repair", "clarification-answer"]) {
     assert.equal(route(decided("news.posts.list", 0.99), { stage }).path, "refuse");
   }
+  // With no language model a revision is decided like a fresh prompt; the
+  // provider then adds the panel to the view on screen.
+  assert.deepEqual(route(decided("news.posts.list", 0.99), { stage: "revision" }), {
+    path: "fast",
+    reason: "confident",
+    capabilityId: "news.posts.list",
+  });
 });
 
 /* ------------------------------------------------- drafts pass validation */
@@ -1098,8 +1107,13 @@ test("routing: a chosen capability takes the fast path with no decision, under t
     path: "refuse",
     reason: "instruction-override",
   });
-  // A revision or repair still needs the language model, pick or no pick.
-  assert.deepEqual(chosen({ stage: "revision" }), { path: "refuse", reason: "revision" });
+  // A repair still needs the language model, pick or no pick; a revision does
+  // when one is configured, and is the rules' to add to the view when not.
+  assert.deepEqual(chosen({ stage: "revision", hasFallback: true }), {
+    path: "fallback",
+    reason: "revision",
+  });
+  assert.equal(chosen({ stage: "revision" }).path, "fast");
   assert.deepEqual(chosen({ stage: "repair", hasFallback: true }), {
     path: "fallback",
     reason: "repair",

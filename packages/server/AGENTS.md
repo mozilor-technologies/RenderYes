@@ -10,8 +10,8 @@ not accidentally widening that.
 - **Capability catalog** (`POST /api/catalog`) — what data may be read.
 - **UI catalog** (`POST /api/ui-catalog`) — what components may render it.
 
-`scopeManifestToSurface` filters capabilities down to those *some registered
-component accepts*. A capability no component can render is invisible to the
+`scopeManifestToSurface` filters capabilities down to those _some registered
+component accepts_. A capability no component can render is invisible to the
 planner. Publishing only the capability half makes compose refuse with a
 missing-UI-catalog error.
 
@@ -24,12 +24,12 @@ host gets an actionable checklist.
 
 `renderyes-catalog` (ships with `@renderyes/capability-catalog`):
 
-| file | whose |
-|---|---|
+| file          | whose                                                         |
+| ------------- | ------------------------------------------------------------- |
 | **inventory** | the machine's — hash-locked, editing it is refused at compile |
-| **decisions** | yours — approved fields, arguments, row and time limits |
+| **decisions** | yours — approved fields, arguments, row and time limits       |
 
-Full route: `inventory` → `candidate` → *edit* → `compile` → `publish`.
+Full route: `inventory` → `candidate` → _edit_ → `compile` → `publish`.
 `renderyes-catalog --help` prints it per command. The inventory is generated and
 hash-locked; it has no public JSON Schema. Strict schemas
 for decisions and review exports ship in
@@ -46,11 +46,11 @@ row-relative. Without it a `collection` capability refuses to compile.
 
 ## Narrowing: where a visitor's constraint actually lands
 
-| | reaches |
-|---|---|
-| `sourceNarrowingArguments` | planner-set arguments sent to the upstream |
-| `supports.sourceFilterFields` | filter fields compiled into an upstream filter argument |
-| `supports.filterFields` | the full filter allowlist; fields outside `sourceFilterFields` run post-fetch over one fetched page |
+|                               | reaches                                                                                             |
+| ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| `sourceNarrowingArguments`    | planner-set arguments sent to the upstream                                                          |
+| `supports.sourceFilterFields` | filter fields compiled into an upstream filter argument                                             |
+| `supports.filterFields`       | the full filter allowlist; fields outside `sourceFilterFields` run post-fetch over one fetched page |
 
 Until the source's own filter/search arguments are approved, every visitor
 constraint narrows a page and the result is reported incomplete. A candidate
@@ -87,7 +87,7 @@ All admin-gated, like every publish route. Import the exported
 Configure the plan yourself:
 
 ```ts
-planProviders: [{ id: "rehearsal", plans: [myPlan] }]
+planProviders: [{ id: "rehearsal", plans: [myPlan] }];
 ```
 
 No key, no cost, identical answer every run — and the plan is yours, so what
@@ -105,7 +105,15 @@ decision model picks the capability, and `src/system-one.ts` builds the draft
 from the catalogs by rules. The rules read values only from the catalog —
 declared enums on filter fields and arguments — and defer or refuse anything
 else; they never bypass validation. Keep it that way: a new rule that guesses a
-value is the mock this package already removed once.
+value is the mock this package already removed once. The two values read from
+the prompt itself — a search term into a required `q`-like argument, and a
+presentation cue picking among accepting components — pass the visitor's own
+words through, as the heading does; they do not invent a catalog value.
+
+With no fallback the provider also answers revisions (panel appended to the
+plan on screen, `mergeIntoPlan`), presentation-only revisions
+(`representLastPanel`, no decision) and compound prompts (`splitCompound`, one
+decision per part). Site-specific corrections go in `hostRules`, never here.
 
 ## Mechanics
 

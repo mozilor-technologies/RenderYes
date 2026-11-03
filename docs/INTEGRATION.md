@@ -231,6 +231,8 @@ planProviders: [
     // timeoutMs: 3000,        // a timeout is low confidence, never an error
     // apiKeyEnv: "SYSTEM_ONE_TOKEN", // the NAME of a bearer token variable, for a hosted endpoint
     // shadow: true,           // measure first: the fallback answers, the decision is logged
+    // keepWarmMs: 20_000,     // ping the model server so the first visitor after a lull is not a timeout
+    // hostRules: { override, draft }, // your own corrections, recorded on every classify event
   },
 ],
 ```
@@ -255,14 +257,80 @@ name** (section titles, difficulty levels, statuses) as enums on those fields
 and arguments. A value the catalog does not declare is never guessed — the
 prompt is deferred to the fallback or refused.
 
-Prompts that never take the fast path, whatever the classifier says: revisions
-and clarification answers (they need the plan on screen), repairs, and any
-prompt that reads as an instruction override, an action ("vote", "subscribe",
-"delete"), someone else's records, the visitor's own private data ("my saved
-articles"), live or external data ("weather tomorrow"), an identifier
-("order #482"), or two asks joined by a conjunction — except two declared
-values of one field ("politics and business"), which is one request with an
-any-group.
+Prompts that never take the fast path, whatever the classifier says: repairs
+and free-text clarification answers (they continue a conversation the language
+model started), and any prompt that reads as an instruction override, an action
+("vote", "subscribe", "delete"), someone else's records, the visitor's own
+private data ("my saved articles"), live or external data ("weather tomorrow"),
+or an identifier ("order #482"). With a `fallback`, a revision and a compound
+prompt go to the language model too, which reads both better than rules do.
+
+| the draft needs          | it is read from                                                                                                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| a search term ("find …") | the visitor's own words, with the asking trimmed off, into a **required** string argument named `q`, `query`, `search`, `term(s)`, `keyword(s)` or `text` with no declared values          |
+| the presentation         | "as a table" / "as a chart" in the prompt picks, among the components that accept the data, one whose id or description says table, grid, list, rows / chart, graph, bar, line, donut, pie |
+
+**With no language model, four more things are answered by rules.** They came
+from running two sites with no model key at all, and they are what a visitor
+does after the first view:
+
+- **A typed refinement adds a panel.** "and the top tags" typed under a view is
+  decided like a fresh prompt and its panel is appended to the view on screen,
+  with ids renumbered past the plan's own. The view is bounded by the surface's
+  `maxComponents` (four when it declares none); the oldest panel is dropped
+  first, and its request with it. A plan that binds a composition or a join is
+  not one the rules can add to, and such a revision is refused with a reason.
+- **"As a table" re-renders the last panel.** A revision that names only a
+  presentation makes no decision call: the last panel's request is kept and the
+  panel is rendered by another component the surface offers for the same data
+  (a chart to a breakdown table, a table back to a chart). The surface must
+  offer such a component; when it does not, the refusal says so.
+- **A compound prompt is split.** "python questions and the top tags" is split
+  at its conjunction (and the commas of a list joined by one) into two or three
+  parts of at least two words, each decided on its own. When every part is
+  confident and draftable, the view is one panel per part; when any part is
+  not, the whole prompt is refused as compound, never half-answered.
+- **A capability with no value asks.** When the decision names a capability
+  whose required argument the prompt does not supply ("top answerers" with no
+  tag named), the visitor gets the same two-to-four-chip question as the
+  uncertain band, built from the other capabilities, rather than a refusal.
+
+Each is recorded on the `classify` event: `stage: "revision"`, reason
+`presentation`, reason `compound-by-parts` with `parts`, path `clarify` with
+reason `no-draft`.
+
+**Keep the model server warm** with `keepWarmMs`. A small model server cools
+between visitors, and a cold decision exceeds `timeoutMs` and reads as low
+confidence; on a 2-vCPU box the first decision after a pause measured seven
+seconds. The provider pings the endpoint with a two-word prompt on that
+interval, skipping a tick while a real decision is in flight, and the timer
+never keeps the process alive.
+
+**Host rules** are where you correct the decision model on your own vocabulary
+without touching this package. Every site that ran the fast path for a while
+found two or three confusions — a trend word read as a list, a search
+capability soaking up short prompts that name a tag — and the fix belongs
+beside your catalog:
+
+```ts
+hostRules: {
+  // Send a prompt where you know it goes. Called once per decision, before
+  // the thresholds; return undefined to leave the decision alone. The id must
+  // be advertised, and a guard (an action, an identifier) still wins.
+  override: ({ prompt, decision, capabilityIds }) =>
+    decision.capabilityId === "pulse.questions.search" && prompt.split(/\s+/).length <= 5
+      ? { capabilityId: "pulse.questions.list", reason: "tag-list-not-search" }
+      : undefined,
+  // Plan a capability yourself when the catalog's rules cannot derive a value
+  // (a tag from a word the catalog does not declare). Same validation as any
+  // draft; return undefined to use the catalog rules.
+  draft: ({ prompt, capabilityId, surfaceId }) => undefined,
+},
+```
+
+An override lands on the `classify` event as reason `host-override` with your
+`reason` under `hostRule`, beside the model's own pick, so a rule that fires too
+often is visible in the same place a threshold is.
 
 **Measure before trusting.** `shadow: true` (requires `fallback`) sends every
 prompt to the language model and records the decision beside it: `onModelCall`
@@ -782,6 +850,15 @@ control does not have to fail once before disappearing. A revision resets the
 arrangement because nodeIds are model-chosen labels with no
 stability across re-plans. Building your own UI instead? The same behaviour is
 `reorderPanels(nodeIds)` on `useViewCompose()`.
+
+The second affordance is a × on each panel of a multi-panel view, which drops
+that panel through one `removeNode` refinement. It exists because a visitor
+who refines a view a few times ends up with a panel they no longer want, and
+"remove the chart" typed into the prompt is an action verb the planner
+rightly refuses. It is never offered on a single-panel view — the server
+refuses to empty a view, since resetting is a different action than refining
+— and `removePanels={false}` hides it under the same `resolveViewOwner` rule
+as `rearrange`. In your own UI it is `refine([{ kind: "removeNode", nodeId }])`.
 
 ### Revision — a follow-up that changes the current view
 

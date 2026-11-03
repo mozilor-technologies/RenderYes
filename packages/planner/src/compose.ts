@@ -29,6 +29,14 @@ export interface ComposeDataPlanInput {
   plannerManifest: PlannerManifest;
   surfaceId: string;
   prompt: string;
+  /**
+   * The visitor's own words when `prompt` carries framing around them — a
+   * server revising a view wraps the request in a summary of what is on
+   * screen. The language model reads `prompt`; the planning context's
+   * `prompt` is this when given, so a provider that does not read prose
+   * still decides from what the visitor typed.
+   */
+  visitorPrompt?: string;
   provider: PlanProvider;
   previousPlan?: PlanV3_1;
   maxRetries?: number;
@@ -117,6 +125,13 @@ export interface PlanningContext {
    * capability without reading prose should plan this one and ask nothing.
    */
   chosenCapabilityId?: string;
+  /**
+   * On a `revision`: the plan on screen, as data. The language model gets it
+   * folded into the user prompt; a provider that does not read prose needs
+   * the nodes and requests themselves to add to the view or re-present a
+   * panel. The visitor's own plan, so nothing new is exposed.
+   */
+  previousPlan?: PlanV3_1;
 }
 
 /** The request `composeDataPlan` hands a provider: the core shape plus the planning context. */
@@ -250,7 +265,9 @@ export async function composeDataPlan(
   // to a view rather than replacing it, were both impossible for the same
   // reason.
   let userPrompt = withChosenCapability(
-    input.previousPlan ? buildRevisionPrompt(input.prompt, input.previousPlan) : input.prompt,
+    input.previousPlan
+      ? buildRevisionPrompt(input.prompt, input.previousPlan)
+      : input.prompt,
     input.chosenCapabilityId,
   );
   let lastIssues: DataPlanIssue[] = [];
@@ -273,7 +290,7 @@ export async function composeDataPlan(
       userPrompt,
       jsonSchema: contract.jsonSchema,
       planning: {
-        prompt: input.prompt,
+        prompt: input.visitorPrompt ?? input.prompt,
         surfaceId: input.surfaceId,
         stage:
           attempt > 0
@@ -291,6 +308,7 @@ export async function composeDataPlan(
         contract.capabilityIds.includes(input.chosenCapabilityId)
           ? { chosenCapabilityId: input.chosenCapabilityId }
           : {}),
+        ...(input.previousPlan ? { previousPlan: input.previousPlan } : {}),
       },
     };
     try {
@@ -423,7 +441,11 @@ function withChosenCapability(prompt: string, capabilityId: string | undefined):
 
 /** A needs-clarification draft's `candidates`, split from the draft the schema sees. */
 function splitCandidates(value: unknown): { candidates: unknown; draft: unknown } {
-  if (!isRecord(value) || value.status !== "needs-clarification" || !("candidates" in value)) {
+  if (
+    !isRecord(value) ||
+    value.status !== "needs-clarification" ||
+    !("candidates" in value)
+  ) {
     return { candidates: undefined, draft: value };
   }
   const { candidates, ...draft } = value;
@@ -448,7 +470,8 @@ function advertisedCandidates(
   for (const entry of offered) {
     if (!isRecord(entry)) continue;
     const { capabilityId, label } = entry;
-    if (typeof capabilityId !== "string" || !capabilityIds.includes(capabilityId)) continue;
+    if (typeof capabilityId !== "string" || !capabilityIds.includes(capabilityId))
+      continue;
     if (seen.has(capabilityId)) continue;
     const text = typeof label === "string" ? label.replace(/\s+/g, " ").trim() : "";
     if (!text) continue;
@@ -921,7 +944,9 @@ function buildRevisionPrompt(prompt: string, previousPlan: PlanV3_1): string {
     JSON.stringify(
       {
         dataRequests: previousPlan.dataRequests,
-        ...(previousPlan.dataCompositions ? { dataCompositions: previousPlan.dataCompositions } : {}),
+        ...(previousPlan.dataCompositions
+          ? { dataCompositions: previousPlan.dataCompositions }
+          : {}),
         ...(previousPlan.dataJoins ? { dataJoins: previousPlan.dataJoins } : {}),
         surfaces: previousPlan.surfaces,
       },

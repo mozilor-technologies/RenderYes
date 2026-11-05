@@ -67,7 +67,10 @@ import {
   type ScriptedProviderConfig,
   type SystemOneProviderConfig,
 } from "./providers.js";
-import { createSystemOnePlanProvider, type SystemOneClassification } from "./system-one.js";
+import {
+  createSystemOnePlanProvider,
+  type SystemOneClassification,
+} from "./system-one.js";
 import type { PlanningContext } from "@renderyes/planner";
 
 export {
@@ -87,14 +90,25 @@ export {
   type ModelProviderConfig,
   type OversizedParamsSchema,
   type ScriptedProviderConfig,
+  type SystemOneHostRules,
   type SystemOneProviderConfig,
 } from "./providers.js";
 export {
+  DEFAULT_MAX_PANELS,
+  appendDraft,
   askSystemOne,
   buildSystemOneDraft,
   buildSystemOneQuestions,
+  capabilityTakesFreeText,
+  componentKind,
   createSystemOnePlanProvider,
   guardPrompt,
+  isPresentationOnly,
+  mergeIntoPlan,
+  presentationCue,
+  representLastPanel,
+  searchTermsFrom,
+  splitCompound,
   routeChosenCapability,
   routeSystemOne,
   systemOneCandidates,
@@ -103,9 +117,12 @@ export {
   type SystemOneCandidate,
   type SystemOneClassification,
   type SystemOneDecision,
+  type PresentationKind,
   type SystemOneDraft,
   type SystemOneGuard,
+  type SystemOneHostDraft,
   type SystemOnePath,
+  type SystemOnePlanProvider,
   type SystemOneReason,
   type SystemOneRoute,
 } from "./system-one.js";
@@ -318,9 +335,7 @@ export interface ViewServerConfig<Session> {
    * and everything else goes to its `fallback` or is refused with a reason.
    */
   planProviders?: readonly (
-    | ModelProviderConfig
-    | ScriptedProviderConfig
-    | SystemOneProviderConfig
+    ModelProviderConfig | ScriptedProviderConfig | SystemOneProviderConfig
   )[];
   /**
    * Called once per `composeAgainstPublishedCatalogs`, on success and on
@@ -1925,9 +1940,9 @@ export function createViewServer<Session>(
    * are written by this runtime from catalog vocabulary, never by an
    * upstream.
    */
-  function redactExecutedResults<
-    T extends { results: Record<string, ExecutionResult> },
-  >(executed: T): T {
+  function redactExecutedResults<T extends { results: Record<string, ExecutionResult> }>(
+    executed: T,
+  ): T {
     let changed = false;
     const results: Record<string, ExecutionResult> = {};
     for (const [requestId, result] of Object.entries(executed.results)) {
@@ -1944,7 +1959,6 @@ export function createViewServer<Session>(
     }
     return changed ? { ...executed, results } : executed;
   }
-
 
   /**
    * Plans this server composed recently, so `saveComposedView` can take a
@@ -2181,7 +2195,9 @@ export function createViewServer<Session>(
               startedAt,
               durationMs: result.classification.durationMs,
               outcome: result.classification.outcome,
-              ...(result.classification.error ? { error: result.classification.error } : {}),
+              ...(result.classification.error
+                ? { error: result.classification.error }
+                : {}),
               ...(context.catalogId ? { catalogId: context.catalogId } : {}),
               classification: result.classification,
             });
@@ -2650,7 +2666,9 @@ export function createViewServer<Session>(
   function assertContractWithinCeiling(catalog: unknown): void {
     const ceiling = config.contractTokenCeiling;
     if (ceiling === undefined) return;
-    const cost = describeContractCost(createPlannerManifest(assertCapabilityCatalog(catalog)));
+    const cost = describeContractCost(
+      createPlannerManifest(assertCapabilityCatalog(catalog)),
+    );
     if (cost.approximateTokens <= ceiling) return;
     throw new Error(
       `Refusing to publish: ${judgeContractCost(cost, ceiling).advice} ` +
@@ -3487,7 +3505,8 @@ export function createViewServer<Session>(
               // A scripted provider has no model, and its plans are its
               // identity: two scripts under one id are two different planners
               // as far as a cached plan is concerned.
-              if (isScriptedProvider(configured)) return `scripted:${configured.plans.length}`;
+              if (isScriptedProvider(configured))
+                return `scripted:${configured.plans.length}`;
               // The fast path and its fallback are one planner as far as a
               // cached plan is concerned: both write plans the same catalog
               // validated, under one id.
@@ -3685,7 +3704,7 @@ export function createViewServer<Session>(
         plannerManifest: registeredCatalog.plannerManifest,
         surfaceId: resolvedSurfaceId,
         prompt: effectivePrompt,
-        ...(previous ? { previousPlan: previous.plan } : {}),
+        ...(previous ? { previousPlan: previous.plan, visitorPrompt: prompt } : {}),
         provider: meteredProvider as never,
         deadlineMs: planDeadlineMs,
         ...(answering ? { allowClarification: false } : {}),
@@ -3865,7 +3884,9 @@ export function createViewServer<Session>(
                       state,
                       durationMs:
                         Date.now() - (requestStartedAt.get(requestId) ?? dataStartedAt),
-                      ...(result.ok ? {} : { errorMessage: visitorRequestError(result.error) }),
+                      ...(result.ok
+                        ? {}
+                        : { errorMessage: visitorRequestError(result.error) }),
                     });
                     // Re-project against everything settled so far. Compositions
                     // and joins are computed only once every request has landed,
@@ -4278,7 +4299,9 @@ export function createViewServer<Session>(
        * not a defect in the capability.
        */
       promptUnreachable: registeredCatalog.plannerManifest.capabilities
-        .filter((capability) => (capability.supports?.unknowableArguments?.length ?? 0) > 0)
+        .filter(
+          (capability) => (capability.supports?.unknowableArguments?.length ?? 0) > 0,
+        )
         .map((capability) => ({
           capabilityId: capability.id,
           dataTypeId: capability.output.dataTypeId,

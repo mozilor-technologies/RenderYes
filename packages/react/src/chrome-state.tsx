@@ -1,4 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import type { SavedViewSummary } from "./use-compose.js";
 
@@ -115,11 +122,14 @@ export interface ChromeOptions {
   savedViewsEnabled: boolean;
   /** Whether panels can be dragged into a new order. */
   rearrangeEnabled: boolean;
+  /** Whether a panel of a multi-panel view can be removed with its × control. */
+  removeEnabled: boolean;
 }
 
 const DEFAULT_CHROME_OPTIONS: ChromeOptions = {
   savedViewsEnabled: true,
   rearrangeEnabled: true,
+  removeEnabled: true,
 };
 
 const ChromeOptionsContext = createContext<ChromeOptions>(DEFAULT_CHROME_OPTIONS);
@@ -133,7 +143,9 @@ export function ViewChromeOptionsProvider({
 }) {
   const value = { ...DEFAULT_CHROME_OPTIONS, ...options };
   return (
-    <ChromeOptionsContext.Provider value={value}>{children}</ChromeOptionsContext.Provider>
+    <ChromeOptionsContext.Provider value={value}>
+      {children}
+    </ChromeOptionsContext.Provider>
   );
 }
 

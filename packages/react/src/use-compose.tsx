@@ -444,10 +444,11 @@ export const HOST_ONLY_HOOK_FIELDS: readonly string[] = Object.freeze([
   // for a host that wants to log or surface *which* request failed and why.
   "issues",
   "failedRequests",
-  // Deterministic refinement is implemented and routed, and no shipped UI
-  // triggers it: model-driven revision covers what changes the answer, and
-  // display ordering belongs to the component.
-  "refine",
+  // `refine` came off this list when the panel strip shipped a × that sends
+  // `removeNode`: a visitor who refines a view a few times ends up with a
+  // panel they no longer want, and "remove the chart" typed as a prompt is
+  // an action verb the planner rightly refuses. Sort, filter and limit still
+  // have no shipped control; `reset` is a host's start-over affordance.
   "reset",
   // The pending state of a panel rearrangement's background write. Nothing
   // renders it deliberately: the whole point of keeping it off `busy` is that
@@ -1018,7 +1019,8 @@ function useComposeSessionState(): ComposeState {
       }
       setMessages(payload.messages as A2uiMessage[]);
       if (typeof payload.planId === "string") setPlanId(payload.planId);
-      if (typeof payload.deadlineMs === "number") serverDeadlineMs.current = payload.deadlineMs;
+      if (typeof payload.deadlineMs === "number")
+        serverDeadlineMs.current = payload.deadlineMs;
       applyRequestSummaries(payload.requests);
     } catch (cause) {
       // Fail toward the host's own site staying usable: surface the problem,
@@ -1480,7 +1482,10 @@ function useComposeSessionState(): ComposeState {
         : cause instanceof ServiceCallError
           ? cause.kind
           : "network";
-      fail(kind, kind === "network" && cause instanceof Error ? cause.message : undefined);
+      fail(
+        kind,
+        kind === "network" && cause instanceof Error ? cause.message : undefined,
+      );
     } finally {
       setBusy(false);
     }
@@ -1554,9 +1559,7 @@ function renderYesEnvelope(messages: readonly A2uiMessage[]): {
       .updateDataModel;
     if (!update || update.path !== "/") continue;
     const envelope = (update.value as { __renderyes?: unknown } | undefined)
-      ?.__renderyes as
-      | { requests?: unknown; nodes?: unknown }
-      | undefined;
+      ?.__renderyes as { requests?: unknown; nodes?: unknown } | undefined;
     if (!envelope) continue;
     const requests: ComposedRequestSummary[] = [];
     if (Array.isArray(envelope.requests)) {

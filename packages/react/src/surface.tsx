@@ -178,10 +178,10 @@ export function ViewSurface({ messages: given, panels = false }: ViewSurfaceProp
  * genuinely the same work it was before this existed.
  */
 function PanelledSurface({ messages }: { messages: readonly A2uiMessage[] }) {
-  const { busy, planId } = useViewCompose();
+  const { busy, planId, refine } = useViewCompose();
   const { pin } = useSavedViews();
   const { reorderPanels } = usePanelOrder();
-  const { savedViewsEnabled, rearrangeEnabled } = useChromeOptions();
+  const { savedViewsEnabled, rearrangeEnabled, removeEnabled } = useChromeOptions();
   const { confirmPinned } = useChromeState();
   const panelIds = useMemo(() => topLevelPanelIds(messages), [messages]);
 
@@ -194,10 +194,15 @@ function PanelledSurface({ messages }: { messages: readonly A2uiMessage[] }) {
   // Rearranging needs the same plan (the write is a refinement of it) and the
   // "more than one panel" bar: one panel has exactly one arrangement.
   const rearrangeable = rearrangeEnabled && planId !== null && panelIds.length > 1;
+  // Removing is the same kind of write as rearranging — one refinement of the
+  // plan on screen — under the same "more than one panel" bar: the server
+  // refuses to empty a view.
+  const removable = removeEnabled && planId !== null && panelIds.length > 1;
 
   // Nothing to offer: render exactly what the plain path renders, rather than a
   // panel wrapper with an empty control row.
-  if (!pinnable && !rearrangeable) return <ViewSurface messages={messages} />;
+  if (!pinnable && !rearrangeable && !removable)
+    return <ViewSurface messages={messages} />;
   return (
     <SurfacePanels
       messages={messages}
@@ -210,6 +215,8 @@ function PanelledSurface({ messages }: { messages: readonly A2uiMessage[] }) {
       }}
       rearrangeable={rearrangeable}
       onReorder={(order: readonly string[]) => void reorderPanels(order)}
+      removable={removable}
+      onRemove={(nodeId: string) => void refine([{ kind: "removeNode", nodeId }])}
     />
   );
 }

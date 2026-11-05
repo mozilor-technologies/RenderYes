@@ -8,32 +8,33 @@ exports; each package's `package.json` defines its public entry points.
 
 ### `ViewProvider` config
 
-| Field              | Default            | Notes                                                                                                                             |
-| ------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| Field              | Default            | Notes                                                                                                                                                          |
+| ------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `serviceUrl`       | —                  | Base URL immediately before the RenderYes `/api/*` paths. Use `""` for a direct same-origin mount; include a framework prefix only when the adapter strips it. |
-| `catalogId`        | —                  | The published capability catalog id.                                                                                              |
-| `components`       | —                  | Components registered with `defineHostComponent`.                                                                                 |
-| `renderMode`       | `"isolated"`       | `"host"` renders in the host DOM and uses the host's CSS.                                                                         |
-| `styles`           | —                  | CSS injected into the isolation boundary.                                                                                         |
-| `uiCatalogId`      | `"<catalogId>:ui"` | Treat this as a storage key. Existing plans and saved views retain the id used when they were composed.                           |
-| `stream`           | `true`             | Set to `false` when a proxy buffers streaming responses.                                                                          |
-| `composeTimeoutMs` | 45 seconds         | Browser-side abort deadline for `/api/compose`. Keep the server deadline at or below it.                                          |
-| `savedViewParam`   | `"iv"`             | Query parameter containing an owner-scoped saved-view id. Set to `false` to manage URLs yourself.                                 |
-| `getAuthHeaders`   | —                  | Returns the visitor's request headers and may refresh credentials asynchronously. Cookies are sent with `credentials: "include"`. |
+| `catalogId`        | —                  | The published capability catalog id.                                                                                                                           |
+| `components`       | —                  | Components registered with `defineHostComponent`.                                                                                                              |
+| `renderMode`       | `"isolated"`       | `"host"` renders in the host DOM and uses the host's CSS.                                                                                                      |
+| `styles`           | —                  | CSS injected into the isolation boundary.                                                                                                                      |
+| `uiCatalogId`      | `"<catalogId>:ui"` | Treat this as a storage key. Existing plans and saved views retain the id used when they were composed.                                                        |
+| `stream`           | `true`             | Set to `false` when a proxy buffers streaming responses.                                                                                                       |
+| `composeTimeoutMs` | 45 seconds         | Browser-side abort deadline for `/api/compose`. Keep the server deadline at or below it.                                                                       |
+| `savedViewParam`   | `"iv"`             | Query parameter containing an owner-scoped saved-view id. Set to `false` to manage URLs yourself.                                                              |
+| `getAuthHeaders`   | —                  | Returns the visitor's request headers and may refresh credentials asynchronously. Cookies are sent with `credentials: "include"`.                              |
 
 ### `ViewWorkspace` props
 
 `ViewPage` and `ViewWorkspace` are two names for the same component.
 
-| Prop          | Default         | Notes                                                                                                                            |
-| ------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `suggestions` | —               | Host-written example prompts.                                                                                                    |
-| `placeholder` | —               | Prompt input placeholder.                                                                                                        |
-| `onExit`      | —               | Host navigation action shown above the prompt.                                                                                   |
-| `exitLabel`   | `"Back"`        | Label for `onExit`.                                                                                                              |
-| `savedViews`  | `true`          | Set to `false` when the server has no `viewStore`, or when the host supplies its own saved-view controls.                        |
-| `rearrange`   | `true`          | Set to `false` when the server has no `resolveViewOwner`, or when the host supplies its own panel controls.                      |
-| `children`    | packaged layout | Replaces the packaged arrangement with individually exported React parts while retaining the page container and render boundary. |
+| Prop           | Default         | Notes                                                                                                                             |
+| -------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `suggestions`  | —               | Host-written example prompts.                                                                                                     |
+| `placeholder`  | —               | Prompt input placeholder.                                                                                                         |
+| `onExit`       | —               | Host navigation action shown above the prompt.                                                                                    |
+| `exitLabel`    | `"Back"`        | Label for `onExit`.                                                                                                               |
+| `savedViews`   | `true`          | Set to `false` when the server has no `viewStore`, or when the host supplies its own saved-view controls.                         |
+| `rearrange`    | `true`          | Set to `false` when the server has no `resolveViewOwner`, or when the host supplies its own panel controls.                       |
+| `removePanels` | `true`          | A × on each panel of a multi-panel view, dropping it through one `removeNode` refinement. Same server requirement as `rearrange`. |
+| `children`     | packaged layout | Replaces the packaged arrangement with individually exported React parts while retaining the page container and render boundary.  |
 
 `ViewLauncher` takes `label` (default `"Ask"`) and `onOpen`. When `onOpen` is
 set, it renders only the launcher button and leaves the panel or page to the

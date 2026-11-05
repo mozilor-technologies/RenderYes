@@ -45,7 +45,7 @@ including the ones whose defaults carry invariants:
 - A slot's rows are a page, not the set. When the row budget cuts a result
   short, `rows.length` is the page size — a headline built from it is silently
   wrong for every truncated result. Count via `countBeyondPage(rows,
-  completeness)`: it prefers `completeness.totalRows`, falls back to the page,
+completeness)`: it prefers `completeness.totalRows`, falls back to the page,
   and returns `exact: false` when the set is known to continue, so you can
   render "at least N" without presenting N as the total.
 
@@ -59,7 +59,8 @@ record-with-lines and chart components.
 `ViewLauncher` and `ViewWorkspace` are the compose loop: type a prompt, get a
 view, refine it in place, start over, and answer a clarifying question.
 `ViewWorkspace` goes further — it saves a view, lists and reopens what was
-saved, and lets a visitor pin or rearrange the panels of one. They are there so
+saved, and lets a visitor pin, rearrange or remove the panels of one. They are
+there so
 you can see the pipeline work before designing anything of your own.
 
 `useViewCompose` returns more than they render. Everything below works and is
@@ -72,7 +73,7 @@ directions — so this table has one place to stay honest against:
 | --------------------------------------- | ---------------------------- |
 | Streaming progress and skeletons        | `progress`, `stage`          |
 | Per-request failure detail              | `issues`, `failedRequests`   |
-| Programmatic refine and reset           | `refine`, `reset`            |
+| Programmatic reset                      | `reset`                      |
 | A rearrangement's background save state | `reordering`                 |
 
 If you need any of that, mount `ViewProvider` and build directly on the hook.
@@ -126,10 +127,10 @@ on its own, because the saved-view routes answer with the same `400 {ok, error}`
 envelope as any rejected request. Left on, the controls render and every use
 surfaces an error.
 
-Set `rearrange={false}` when there is no `resolveViewOwner`. A failed refine is
-typed as `visitor-identity-required`, but the prop prevents an unavailable
-control from being offered in the first place. Both props are documented in
-full on `ViewPageProps`.
+Set `rearrange={false}` and `removePanels={false}` when there is no
+`resolveViewOwner`. A failed refine is typed as `visitor-identity-required`,
+but the props prevent an unavailable control from being offered in the first
+place. All three props are documented in full on `ViewPageProps`.
 
 The shipped `.d.ts` files carry the same contracts as typed, documented
 config: `ViewConfig`, `ComposeState`, and `defineHostComponent` are the three

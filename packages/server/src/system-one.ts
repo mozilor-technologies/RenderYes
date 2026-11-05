@@ -31,6 +31,24 @@
  * candidate capabilities (`systemOneCandidates`). Picking one composes the
  * same prompt again with `chosenCapabilityId` set, which this provider plans
  * from the catalog directly and asks nothing about (`routeChosenCapability`).
+ *
+ * With no language model at all, three more things are answered by rules
+ * rather than refused, because a site that cannot afford a model still has
+ * visitors who refine what they see (measured on two sites, 2026-11):
+ *
+ * - a revision adds the new panel to the view on screen (`mergeIntoPlan`),
+ *   bounded by the surface's `maxComponents`, oldest panel dropped first;
+ * - a revision that only names a presentation ("as a table", "as a chart")
+ *   re-renders the last panel in another component the surface offers for
+ *   the same data (`representLastPanel`), with no decision call;
+ * - a compound prompt is split at its conjunction and each part is decided
+ *   on its own; when every part is confident, one panel per part is built
+ *   (`splitCompound`). A part the rules cannot answer refuses the whole.
+ *
+ * A host adds what it knows about its own vocabulary through
+ * `hostRules`: an `override` that sends a prompt to the capability the host
+ * names, and a `draft` that plans a capability the host would rather plan
+ * itself. Both are recorded on the `classify` event, never silent.
  */
 import {
   declaredFieldEnumValues,
@@ -38,7 +56,15 @@ import {
   type PlannerCapability,
   type PlannerManifest,
 } from "@renderyes/capability-catalog";
-import type { FilterNode, JsonValue, QuerySpec, Sort } from "@renderyes/core";
+import type {
+  DataRequest,
+  FilterNode,
+  JsonValue,
+  PlanV3_1,
+  QuerySpec,
+  Sort,
+  SurfaceNode,
+} from "@renderyes/core";
 import type { PlanningContext } from "@renderyes/planner";
 import {
   matchCatalogToComponents,
@@ -189,7 +215,17 @@ export type SystemOneReason =
   | "confident"
   /** The visitor picked this capability from a clarification; no decision was asked. */
   | "chosen"
-  | "no-draft";
+  | "no-draft"
+  /** A revision that only named a presentation: the last panel was re-rendered, no decision asked. */
+  | "presentation"
+  /** A presentation the surface has no other component for. */
+  | "no-presentation"
+  /** A compound prompt answered as one panel per part, each decided on its own. */
+  | "compound-by-parts"
+  /** The host's `override` rule named the capability. */
+  | "host-override"
+  /** The host's `refuse` rule declined the prompt, in its own words. */
+  | "host-refusal";
 
 /**
  * The decision as recorded beside the plan it led to (or, in shadow mode,
@@ -221,6 +257,12 @@ export interface SystemOneClassification {
    * which chips get picked.
    */
   chosenCapabilityId?: string;
+  /** The stage this decision was made at; absent means `initial`. */
+  stage?: PlanningContext["stage"];
+  /** The host rule's `reason` when `hostRules.override` named the capability. */
+  hostRule?: string;
+  /** `compound-by-parts` only: how many parts the prompt was split into. */
+  parts?: number;
   /** True when the language model answered and this decision only watched. */
   shadow?: boolean;
   /**
@@ -249,7 +291,7 @@ const INSTRUCTION_OVERRIDE =
   /\b(ignore|disregard|forget|override)\b.{0,40}\b(instructions?|rules?|prompts?|guidelines?)|\b(system|developer) (prompt|message|instructions?)\b|\byou are now\b|\bjailbreak\b|\bapi[ _-]?keys?\b|\bsecrets?\b|\bpasswords?\b|\bcredentials?\b|\baccess tokens?\b|\bbearer\b|<script|```/i;
 /** An action verb: the visitor wants to do something, and this product only shows. */
 const ACTION_WORDS =
-  /\b(vote|voting|subscribe|unsubscribe|comment|commenting|delete|remove|edit|update|submit|send|post a|write a|reply|log ?in|log ?out|sign ?in|sign ?up|register|cancel|share|email me|notify|download|print|buy|purchase|order a|book a|reserve|pay|checkout|transfer)\b/i;
+  /\b((?:up|down)?vote|voting|subscribe|unsubscribe|comment|commenting|delete|remove|edit|update|submit|send|post a|write a|reply|log ?in|log ?out|sign ?in|sign ?up|register|cancel|share (?:this|it|that|them|these|with|on|to|via|by)|email me|notify|download|print|buy|purchase|order a|book a|reserve|pay|checkout|transfer)\b/i;
 /** The visitor's own saved or private activity: data the approved read catalog does not hold. */
 const PERSONAL_WORDS =
   /\bmy (saved|past|previous|own|earlier|recent)\b|\bmy (votes?|responses?|answers?|account|profile|subscription|history|bookmarks?|orders?|cart|basket|payments?|invoices?)\b|\bmy \w+ history\b|\bsaved (articles|views|stories|items|searches)\b|\bbookmarked\b/i;
@@ -268,11 +310,26 @@ const IDENTIFIER_WORDS = /#\s?\d+|\b\d{4,}\b|\b[A-Za-z]{1,4}-\d{2,}\b/;
 /** Joins two asks into one prompt. */
 const CONJUNCTION =
   /\b(and|plus|along with|together with|as well as|alongside|also)\b|&/i;
+/**
+ * A conjunction that opens the prompt joins it to the view on screen, not to
+ * a second ask: "and the top tags" typed under a view is one ask. Stripped
+ * before the compound rule looks for a conjunction between two asks.
+ */
+const LEADING_CONJUNCTION =
+  /^\s*(?:(?:and|plus|along with|together with|as well as|alongside|also)\b|&)\s*/i;
 
 /** The first guard a prompt trips, in fixed order, or undefined when none does. */
 export function guardPrompt(
   prompt: string,
   vocabulary: readonly VocabularyHit[] = [],
+  options: {
+    /**
+     * The decided capability takes the prompt as free text (a required
+     * search argument), so a conjunction inside it is part of the query, not
+     * a second ask: a pasted title "Updated and Deployed, but…" is one search.
+     */
+    freeText?: boolean;
+  } = {},
 ): SystemOneGuard | undefined {
   if (INSTRUCTION_OVERRIDE.test(prompt)) return "instruction-override";
   if (ACTION_WORDS.test(prompt)) return "action-verb";
@@ -282,7 +339,7 @@ export function guardPrompt(
   if (PERSONAL_WORDS.test(prompt)) return "personal-data";
   if (EXTERNAL_WORDS.test(prompt)) return "external-data";
   if (IDENTIFIER_WORDS.test(prompt)) return "identifier";
-  if (looksCompound(prompt, vocabulary)) return "compound-prompt";
+  if (!options.freeText && looksCompound(prompt, vocabulary)) return "compound-prompt";
   return undefined;
 }
 
@@ -296,7 +353,7 @@ export function looksCompound(
   prompt: string,
   vocabulary: readonly VocabularyHit[],
 ): boolean {
-  if (!CONJUNCTION.test(prompt)) return false;
+  if (!CONJUNCTION.test(prompt.replace(LEADING_CONJUNCTION, ""))) return false;
   const perField = new Map<string, number>();
   for (const hit of vocabulary) {
     const key = `${hit.kind}:${hit.name}`;
@@ -324,6 +381,8 @@ export interface SystemOneRouteInput {
    */
   clarificationThreshold?: number;
   hasFallback: boolean;
+  /** The decided capability takes the prompt as free text; see `guardPrompt`. */
+  freeText?: boolean;
 }
 
 /** Decides a prompt's path from the decision and the rules. Builds nothing. */
@@ -333,12 +392,17 @@ export function routeSystemOne(input: SystemOneRouteInput): SystemOneRoute {
     reason,
   });
   if (!input.prompt.trim()) return defer("empty-prompt");
-  // A revision reads the plan on screen; a repair reads a validation
-  // transcript; an answer continues a conversation the language model
-  // started. A classifier that sees only the prompt has nothing to decide
-  // from in any of them.
-  if (input.stage !== "initial") return defer(input.stage);
-  const guard = guardPrompt(input.prompt, input.vocabulary);
+  // A repair reads a validation transcript and an answer continues a
+  // conversation the language model started: a classifier that sees only the
+  // prompt has nothing to decide from in either. A revision reads the plan on
+  // screen, which the language model does better when there is one; with no
+  // language model the revision is decided like a fresh prompt and the
+  // provider adds the result to the view (`mergeIntoPlan`).
+  const revisionByRules = input.stage === "revision" && !input.hasFallback;
+  if (input.stage !== "initial" && !revisionByRules) return defer(input.stage);
+  const guard = guardPrompt(input.prompt, input.vocabulary, {
+    freeText: input.freeText === true,
+  });
   if (guard) return defer(guard);
   if (!input.decision.ok) return defer("model-unavailable");
   const { capabilityId, confidence, inScope } = input.decision;
@@ -374,6 +438,8 @@ export interface ChosenCapabilityRouteInput {
   /** Catalog vocabulary matched in the prompt, for the compound rule. */
   vocabulary: readonly VocabularyHit[];
   hasFallback: boolean;
+  /** The chosen capability takes the prompt as free text; see `guardPrompt`. */
+  freeText?: boolean;
 }
 
 /**
@@ -390,13 +456,111 @@ export function routeChosenCapability(input: ChosenCapabilityRouteInput): System
     reason,
   });
   if (!input.prompt.trim()) return defer("empty-prompt");
-  if (input.stage !== "initial" && input.stage !== "clarification-answer") {
+  const revisionByRules = input.stage === "revision" && !input.hasFallback;
+  if (
+    input.stage !== "initial" &&
+    input.stage !== "clarification-answer" &&
+    !revisionByRules
+  ) {
     return defer(input.stage);
   }
-  const guard = guardPrompt(input.prompt, input.vocabulary);
+  const guard = guardPrompt(input.prompt, input.vocabulary, {
+    freeText: input.freeText === true,
+  });
   if (guard) return defer(guard);
   if (!input.capabilityIds.includes(input.chosenCapabilityId)) return defer("no-draft");
   return { path: "fast", reason: "chosen", capabilityId: input.chosenCapabilityId };
+}
+
+/* ------------------------------------------------------------------------ */
+/* Compound prompts: one decision per part, with no language model.          */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Where a compound prompt splits: the conjunction the compound guard matched,
+ * and the commas of a list joined by one ("A, B and C"). A comma alone never
+ * makes a prompt compound — this runs only once the guard has fired.
+ */
+const CONJUNCTION_SPLIT =
+  /\s*(?:,?\s*\b(?:and|plus|along with|together with|as well as|alongside|also)\b|&|,)\s*/i;
+const MAX_COMPOUND_PARTS = 3;
+
+/**
+ * The asks a compound prompt joins, each decided on its own. Two or three
+ * parts of at least two words each; anything else is not a prompt the rules
+ * can split without guessing ("and more" is not a second ask). A bad split
+ * fails safe: a fragment nothing answers refuses the whole prompt.
+ */
+export function splitCompound(prompt: string): string[] | undefined {
+  const parts = prompt
+    .replace(LEADING_CONJUNCTION, "")
+    .split(CONJUNCTION_SPLIT)
+    .map((part) =>
+      part
+        .trim()
+        .replace(/^[,;]+|[,;]+$/g, "")
+        .trim(),
+    )
+    .filter(Boolean);
+  if (parts.length < 2 || parts.length > MAX_COMPOUND_PARTS) return undefined;
+  if (parts.some((part) => tokenize(part).length < 2)) return undefined;
+  return parts;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Presentation: how the visitor wants it shown, read from their words.      */
+/* ------------------------------------------------------------------------ */
+
+/** The two presentations a prompt can name without naming data. */
+export type PresentationKind = "table" | "chart";
+
+const TABLE_CUES =
+  /\b(?:as|in|into|to)\s+(?:a\s+|an\s+)?(?:table|grid|rows|list)\b|\btabular\b|\btable\s+(?:form|format|view)\b/i;
+const CHART_CUES =
+  /\b(?:as|in|into|to)\s+(?:a\s+|an\s+)?(?:chart|graph|bar\s*chart|line\s*chart|pie|donut|plot)\b|\bgraphically\b|\bvisuali[sz]ed?\b/i;
+/**
+ * A prompt that names only a presentation and the filler around it: "show it
+ * as a table", "as a chart instead". No data word, so nothing to decide; the
+ * last panel on screen is what "it" means.
+ */
+const PRESENTATION_ONLY =
+  /^(?:\s*(?:show|display|render|make|put|draw|it|this|that|them|the|same|data|please|but|now|can|could|you|as|in|into|to|a|an|table|grid|rows|list|tabular|form|format|view|instead|chart|graph|bar|bars|donut|pie|line|plot|graphically|visuali[sz]ed?))*\s*[?.!]*\s*$/i;
+
+/** The presentation the prompt asks for, if it names one. */
+export function presentationCue(prompt: string): PresentationKind | undefined {
+  if (TABLE_CUES.test(prompt)) return "table";
+  if (CHART_CUES.test(prompt)) return "chart";
+  return undefined;
+}
+
+/** Whether the prompt says nothing but how to show what is already on screen. */
+export function isPresentationOnly(prompt: string): boolean {
+  return presentationCue(prompt) !== undefined && PRESENTATION_ONLY.test(prompt);
+}
+
+/**
+ * What a component is, read from its id and description — "StarterDataTable",
+ * "a bar chart of…". Nothing is inferred beyond the words the catalog's owner
+ * wrote; a component that names neither is neither, and is never chosen for a
+ * presentation cue.
+ */
+export function componentKind(
+  component: SiteComponentDefinition,
+): PresentationKind | undefined {
+  // The id first: "StarterBreakdownTable" is a table whatever its description
+  // says about charts ("…exact figures instead of a chart"), and an item list
+  // whose description says "one line each" is not a line chart. Only an id
+  // that names neither falls back to the description's first sentence.
+  const kindOf = (text: string): PresentationKind | undefined => {
+    if (/chart|graph|plot|\bbars?\b|\bline\b|donut|\bpie\b|sparkline/i.test(text))
+      return "chart";
+    if (/table|grid|\blist\b|\brows\b/i.test(text)) return "table";
+    return undefined;
+  };
+  const byId = kindOf(component.id.replace(/([a-z])([A-Z])/g, "$1 $2"));
+  if (byId) return byId;
+  const firstSentence = (component.description ?? "").split(/(?<=[.!?])\s/)[0] ?? "";
+  return kindOf(firstSentence);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -723,19 +887,18 @@ export function headingFrom(prompt: string): string {
 
 export interface SystemOneDraft {
   status: "ready";
-  dataRequests: Array<{
-    requestId: string;
-    capabilityId: string;
-    params: Record<string, JsonValue>;
-    query?: QuerySpec;
-  }>;
-  nodes: Array<{
-    nodeId: string;
-    componentId: string;
-    props: Record<string, JsonValue>;
-    dataBindings: Record<string, { requestId: string }>;
-  }>;
+  dataRequests: DataRequest[];
+  nodes: SurfaceNode[];
 }
+
+/**
+ * The draft shape a host's `hostRules.draft` returns: the same three fields,
+ * typed loosely because the host writes plain objects and validation, not
+ * this type, is what checks them.
+ */
+export type SystemOneHostDraft = NonNullable<
+  ReturnType<NonNullable<NonNullable<SystemOneProviderConfig["hostRules"]>["draft"]>>
+>;
 
 export type SystemOneDraftResult =
   | { ok: true; draft: SystemOneDraft; vocabulary: VocabularyHit[] }
@@ -782,16 +945,20 @@ export function buildSystemOneDraft(input: {
     catalogVocabulary(capability, dataType),
   );
 
+  // "top tags as a table": a presentation the prompt names picks among the
+  // accepting components; one that matches wins over the nominal preference,
+  // and when none matches the choice is as it would have been without it.
   const binding = chooseComponent(
     capability,
     input.plannerManifest,
     input.site,
     input.surfaceId,
+    presentationCue(input.prompt),
   );
   if (!binding) return { ok: false, reason: "no-component", vocabulary };
 
   const limit = limitFrom(input.prompt);
-  const params = fillParams(capability, vocabulary, limit);
+  const params = fillParams(capability, vocabulary, limit, input.prompt);
   if (!params.ok) return { ok: false, reason: params.reason, vocabulary };
 
   const query = isListShaped(capability.output.shape)
@@ -833,6 +1000,8 @@ function chooseComponent(
   manifest: PlannerManifest,
   site: RegisteredSite,
   surfaceId: string,
+  prefer?: PresentationKind,
+  options: { requirePreferred?: boolean } = {},
 ): { component: SiteComponentDefinition; slotName: string } | undefined {
   const surface = site.getSurface(surfaceId);
   if (!surface) return undefined;
@@ -846,7 +1015,12 @@ function chooseComponent(
   if (!coverage) return undefined;
   const accepted = new Set(coverage.matchingComponentIds);
   let best:
-    | { component: SiteComponentDefinition; slotName: string; nominal: boolean }
+    | {
+        component: SiteComponentDefinition;
+        slotName: string;
+        nominal: boolean;
+        preferred: boolean;
+      }
     | undefined;
   for (const componentId of surface.componentIds) {
     if (!accepted.has(componentId)) continue;
@@ -863,9 +1037,231 @@ function chooseComponent(
     );
     if (!acceptance) continue;
     const nominal = "dataTypeId" in acceptance;
-    if (!best || (nominal && !best.nominal)) best = { component, slotName, nominal };
+    const preferred = prefer !== undefined && componentKind(component) === prefer;
+    if (options.requirePreferred && !preferred) continue;
+    // A presentation the visitor named beats the nominal preference; within
+    // the same standing, the nominal slot wins; ties go to surface order.
+    if (
+      !best ||
+      (preferred && !best.preferred) ||
+      (preferred === best.preferred && nominal && !best.nominal)
+    ) {
+      best = { component, slotName, nominal, preferred };
+    }
   }
   return best ? { component: best.component, slotName: best.slotName } : undefined;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Revisions without a model: add to the view, or re-present a panel.       */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * The panels a view may hold when its surface declares no ceiling. A view that
+ * grows with every refinement is not a refinement; four is what the surfaces
+ * measured so far declared, and what a screen holds.
+ */
+export const DEFAULT_MAX_PANELS = 4;
+
+/** Every request id a node or its slot children bind. */
+function boundRequestIds(
+  nodes: readonly SurfaceNode[],
+  out = new Set<string>(),
+): Set<string> {
+  for (const node of nodes) {
+    for (const binding of Object.values(node.dataBindings ?? {})) {
+      if ("requestId" in binding) out.add(binding.requestId);
+    }
+    for (const children of Object.values(node.slots ?? {}))
+      boundRequestIds(children, out);
+  }
+  return out;
+}
+
+/** Whether any node or slot child binds a composition or a join. */
+function bindsBeyondRequests(nodes: readonly SurfaceNode[]): boolean {
+  return nodes.some(
+    (node) =>
+      Object.values(node.dataBindings ?? {}).some(
+        (binding) => !("requestId" in binding),
+      ) || Object.values(node.slots ?? {}).some(bindsBeyondRequests),
+  );
+}
+
+/** The first id of the form `${prefix}${n}` not yet used; adds it to the set. */
+function freshId(used: Set<string>, prefix: string): string {
+  let n = used.size + 1;
+  while (used.has(`${prefix}${n}`)) n += 1;
+  const id = `${prefix}${n}`;
+  used.add(id);
+  return id;
+}
+
+/**
+ * Appends `draft` to `base`, renumbering the draft's ids past the base's so a
+ * plan the language model once wrote (with any ids at all) and a plan the
+ * rules wrote can be joined. Nodes beyond `maxPanels` are dropped oldest
+ * first, and a request no kept node binds is dropped with it.
+ */
+export function appendDraft(
+  base: { dataRequests: readonly DataRequest[]; nodes: readonly SurfaceNode[] },
+  draft: SystemOneDraft,
+  maxPanels: number,
+): SystemOneDraft {
+  const usedRequests = new Set(base.dataRequests.map((request) => request.requestId));
+  const usedNodes = new Set(base.nodes.map((node) => node.nodeId));
+  const requestIds = new Map(
+    draft.dataRequests.map((request) => [request.requestId, freshId(usedRequests, "r")]),
+  );
+  const rebind = (node: SurfaceNode): SurfaceNode => ({
+    ...node,
+    nodeId: freshId(usedNodes, "n"),
+    ...(node.dataBindings
+      ? {
+          dataBindings: Object.fromEntries(
+            Object.entries(node.dataBindings).map(([slot, binding]) => [
+              slot,
+              "requestId" in binding
+                ? { requestId: requestIds.get(binding.requestId) ?? binding.requestId }
+                : binding,
+            ]),
+          ),
+        }
+      : {}),
+  });
+  const nodes = [...base.nodes, ...draft.nodes.map(rebind)].slice(
+    -Math.max(1, maxPanels),
+  );
+  const bound = boundRequestIds(nodes);
+  const dataRequests = [
+    ...base.dataRequests,
+    ...draft.dataRequests.map((request) => ({
+      ...request,
+      requestId: requestIds.get(request.requestId) ?? request.requestId,
+    })),
+  ].filter((request) => bound.has(request.requestId));
+  return { status: "ready", dataRequests, nodes };
+}
+
+/**
+ * A revision with no language model: the new panel joins the view on screen
+ * rather than replacing it, which is what "and the top tags" means to the
+ * person who typed it. Returns nothing when the plan on screen is one these
+ * rules cannot carry — a composition or a join bound somewhere in it — and
+ * the revision is then refused with a reason, never half-applied.
+ */
+export function mergeIntoPlan(input: {
+  previousPlan: PlanV3_1;
+  surfaceId: string;
+  draft: SystemOneDraft;
+  maxPanels: number;
+}): SystemOneDraft | undefined {
+  const surface = input.previousPlan.surfaces.find(
+    (candidate) => candidate.id === input.surfaceId,
+  );
+  if (!surface) return undefined;
+  if (
+    input.previousPlan.dataCompositions?.length ||
+    input.previousPlan.dataJoins?.length
+  ) {
+    return undefined;
+  }
+  if (bindsBeyondRequests(surface.nodes)) return undefined;
+  return appendDraft(
+    { dataRequests: input.previousPlan.dataRequests ?? [], nodes: surface.nodes },
+    input.draft,
+    input.maxPanels,
+  );
+}
+
+/**
+ * "As a table", "as a chart": the last panel of the view on screen, rendered
+ * by another component the surface offers for the same data. The request is
+ * untouched — same capability, same parameters, same query — so no decision
+ * is needed and none is asked. Returns a reason when the panel binds something
+ * other than one request, or the surface has no component of that kind that
+ * accepts the data.
+ */
+export function representLastPanel(input: {
+  prompt: string;
+  previousPlan: PlanV3_1;
+  surfaceId: string;
+  plannerManifest: PlannerManifest;
+  site: RegisteredSite;
+}): { ok: true; draft: SystemOneDraft } | { ok: false; reason: string } {
+  const cue = presentationCue(input.prompt);
+  if (!cue) return { ok: false, reason: "no-cue" };
+  const surface = input.previousPlan.surfaces.find(
+    (candidate) => candidate.id === input.surfaceId,
+  );
+  const last = surface?.nodes[surface.nodes.length - 1];
+  if (!surface || !last) return { ok: false, reason: "no-panel" };
+  const bindings = Object.values(last.dataBindings ?? {});
+  const binding = bindings[0];
+  if (bindings.length !== 1 || !binding || !("requestId" in binding)) {
+    return { ok: false, reason: "panel-binds-more-than-one-request" };
+  }
+  const request = (input.previousPlan.dataRequests ?? []).find(
+    (candidate) => candidate.requestId === binding.requestId,
+  );
+  const capability = request
+    ? input.plannerManifest.capabilities.find(
+        (candidate) => candidate.id === request.capabilityId,
+      )
+    : undefined;
+  if (!request || !capability) return { ok: false, reason: "request-not-in-catalog" };
+  const current = input.site.getComponent(last.componentId);
+  if (current && componentKind(current) === cue) {
+    // Already shown that way: the view stands as it is.
+    return {
+      ok: true,
+      draft: {
+        status: "ready",
+        dataRequests: input.previousPlan.dataRequests ?? [],
+        nodes: surface.nodes,
+      },
+    };
+  }
+  const chosen = chooseComponent(
+    capability,
+    input.plannerManifest,
+    input.site,
+    input.surfaceId,
+    cue,
+    { requirePreferred: true },
+  );
+  if (!chosen) return { ok: false, reason: `no-${cue}-component` };
+  const heading = headingOf(last) ?? headingFrom(input.prompt);
+  const props = fillProps(chosen.component, heading);
+  if (!props) return { ok: false, reason: "props-unfillable" };
+  const node: SurfaceNode = {
+    nodeId: last.nodeId,
+    componentId: chosen.component.id,
+    props,
+    dataBindings: { [chosen.slotName]: { requestId: request.requestId } },
+  };
+  return {
+    ok: true,
+    draft: {
+      status: "ready",
+      dataRequests: input.previousPlan.dataRequests ?? [],
+      nodes: [...surface.nodes.slice(0, -1), node],
+    },
+  };
+}
+
+/** The heading-like prop a node already carries, so a re-presented panel keeps its name. */
+function headingOf(node: SurfaceNode): string | undefined {
+  for (const [name, value] of Object.entries(node.props)) {
+    if (
+      HEADING_PROP_NAMES.has(name.toLowerCase()) &&
+      typeof value === "string" &&
+      value.trim()
+    ) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 /** Whether one acceptance takes this output as a plain, ungrouped request. */
@@ -886,10 +1282,79 @@ function acceptsUngrouped(
   return acceptance.shape === output.shape;
 }
 
+/**
+ * A required free-text argument that asks for the visitor's words: a search.
+ * Named like one, typed string, no declared values. The words it takes are
+ * the prompt with the asking stripped off both ends — never a value the
+ * catalog did not declare, because a search term is the visitor's own text
+ * passed through, as a heading is.
+ */
+const SEARCH_ARGUMENT_NAMES = new Set([
+  "q",
+  "query",
+  "search",
+  "term",
+  "terms",
+  "keyword",
+  "keywords",
+  "text",
+]);
+const SEARCH_LEAD =
+  /^(?:(?:please|can you|could you|hey|hi)\s+)?(?:(?:find|search(?: for)?|look(?: up| for)?|show(?: me)?|get(?: me)?|give me|list|any|anything|is there anything|has anyone (?:asked|seen|solved)|questions?|posts?|threads?|discussions?|articles?|stories|items?|results?|entries|records?)(?:\s+|$))*(?:(?:about|on|regarding|mentioning|similar to|like|related to|for|with|that (?:say|mention|cover)s?)(?:\s+|$))?/i;
+const SEARCH_TAIL =
+  /\s*(?:[?.!]+|\b(?:please|as a table|in a table|as a list|as a chart))\s*$/i;
+/** Words that name nothing to search for on their own. */
+const VAGUE_WORDS = new Set(
+  "something anything everything nothing interesting cool nice good great useful fun random stuff things thing info information data content new some the a an me us whatever else more other latest recent popular best top all".split(
+    " ",
+  ),
+);
+const MAX_SEARCH_TERMS_LENGTH = 200;
+
+/** The visitor's words with the asking trimmed away, or nothing when only filler is left. */
+export function searchTermsFrom(prompt: string): string | undefined {
+  let text = prompt.replace(/\s+/g, " ").trim();
+  let before: string;
+  do {
+    before = text;
+    text = text.replace(SEARCH_LEAD, "").replace(SEARCH_TAIL, "").trim();
+  } while (text !== before);
+  text = text.replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").trim();
+  if (text.length < 3) return undefined;
+  const words = tokenize(text);
+  if (words.length === 0 || words.every((word) => VAGUE_WORDS.has(word)))
+    return undefined;
+  return text.slice(0, MAX_SEARCH_TERMS_LENGTH);
+}
+
+function isSearchArgument(name: string, argument: Record<string, unknown>): boolean {
+  return (
+    SEARCH_ARGUMENT_NAMES.has(name.toLowerCase()) &&
+    (argument.type === "string" || argument.type === undefined) &&
+    !Array.isArray(argument.enum)
+  );
+}
+
+/**
+ * Whether a capability takes the visitor's words as a parameter: a required
+ * search argument. Such a prompt is one ask however many conjunctions it
+ * holds, so the compound guard stands down for it.
+ */
+export function capabilityTakesFreeText(capability: PlannerCapability): boolean {
+  const schema = capability.inputSchema;
+  const required = new Set(
+    Array.isArray(schema.required) ? (schema.required as string[]) : [],
+  );
+  return Object.entries(properties(schema)).some(
+    ([name, argument]) => required.has(name) && isSearchArgument(name, argument),
+  );
+}
+
 function fillParams(
   capability: PlannerCapability,
   vocabulary: readonly VocabularyHit[],
   limit: number | undefined,
+  prompt: string,
 ): { ok: true; params: Record<string, JsonValue> } | { ok: false; reason: string } {
   const params: Record<string, JsonValue> = {};
   const schema = capability.inputSchema;
@@ -916,6 +1381,16 @@ function fillParams(
           ? (readNumber(argument.default) ?? DEFAULT_LIST_LIMIT)
           : undefined);
       if (wanted !== undefined) params[name] = clamp(wanted, argument);
+      continue;
+    }
+    if (required.has(name) && isSearchArgument(name, argument)) {
+      const terms = searchTermsFrom(prompt);
+      if (terms === undefined) return { ok: false, reason: `argument-required:${name}` };
+      const maxLength = readNumber(argument.maxLength);
+      params[name] =
+        maxLength !== undefined && terms.length > maxLength
+          ? terms.slice(0, maxLength)
+          : terms;
       continue;
     }
     if (required.has(name)) {
@@ -1088,7 +1563,9 @@ export function systemOneRefusalReason(reason: SystemOneReason): string {
     case "compound-prompt":
       return "That asks for several things at once. Try one at a time.";
     case "revision":
-      return "Changing a view that is already on screen needs the language planner, which is not configured here. Start a new request instead.";
+      return "This view cannot be changed in place here. Start a new request instead.";
+    case "no-presentation":
+      return "This view has no other way to show that data.";
     case "clarification-answer":
       return "Answering a question needs the language planner, which is not configured here. Start a new request instead.";
     case "repair":
@@ -1104,6 +1581,10 @@ export function systemOneRefusalReason(reason: SystemOneReason): string {
     case "empty-prompt":
     case "confident":
     case "chosen":
+    case "presentation":
+    case "compound-by-parts":
+    case "host-override":
+    case "host-refusal":
     default:
       return "That request was not clear enough to match to what this site publishes. Try naming what you want to see.";
   }
@@ -1229,6 +1710,23 @@ export function capabilityIdsIn(value: unknown, out = new Set<string>()): Set<st
   return out;
 }
 
+/** A `PlanProvider` with the keep-warm timer's off switch. */
+export interface SystemOnePlanProvider extends PlanProvider {
+  /**
+   * Stops the keep-warm timer. The timer never keeps the process alive, so
+   * this matters to tests and to a host that replaces its providers at
+   * runtime, not to an ordinary shutdown.
+   */
+  close(): void;
+}
+
+/** What a keep-warm ping sends: two words and the smallest question block the endpoint accepts. */
+const KEEP_WARM_PROMPT = "keep warm";
+const KEEP_WARM_QUESTIONS = buildSystemOneQuestions(
+  { description: "a website", capabilities: [] },
+  [],
+);
+
 /**
  * Builds the `PlanProvider` a `SystemOneProviderConfig` describes.
  *
@@ -1242,6 +1740,12 @@ export function capabilityIdsIn(value: unknown, out = new Set<string>()): Set<st
  * answers and the decision is only recorded. Either way the result carries a
  * `classification` block, which the server emits as a `classify` event.
  *
+ * With no fallback, a revision is decided like a fresh prompt and its panel
+ * added to the view on screen; a revision naming only a presentation
+ * re-renders the last panel with no decision; a compound prompt is split and
+ * each part decided; and a capability the catalog cannot draft a value for
+ * becomes a question with the other capabilities rather than a refusal.
+ *
  * Requires the planning context `composeDataPlan` supplies on every request;
  * a bare `{systemPrompt, userPrompt, jsonSchema}` call throws, because a
  * classifier handed only prose has nothing to decide from and guessing would
@@ -1249,7 +1753,7 @@ export function capabilityIdsIn(value: unknown, out = new Set<string>()): Set<st
  */
 export function createSystemOnePlanProvider(
   config: SystemOneProviderConfig,
-): PlanProvider {
+): SystemOnePlanProvider {
   if (!config.url) throw new Error(`System One provider "${config.id}" needs a url`);
   if (!config.model)
     throw new Error(`System One provider "${config.id}" needs a model name`);
@@ -1258,6 +1762,11 @@ export function createSystemOnePlanProvider(
   if (config.shadow && !config.fallback) {
     throw new Error(
       `System One provider "${config.id}" shadow mode needs a fallback provider`,
+    );
+  }
+  if (config.keepWarmMs !== undefined && !(config.keepWarmMs > 0)) {
+    throw new Error(
+      `System One provider "${config.id}" keepWarmMs must be a positive number`,
     );
   }
   const fallback = config.fallback ? createModelPlanProvider(config.fallback) : undefined;
@@ -1270,7 +1779,32 @@ export function createSystemOnePlanProvider(
     config.refusalThreshold ?? DEFAULT_SYSTEM_ONE_REFUSAL_THRESHOLD;
   const clarificationThreshold =
     config.clarificationThreshold ?? DEFAULT_SYSTEM_ONE_CLARIFICATION_THRESHOLD;
+  const hostRules = config.hostRules ?? {};
   const modelId = `system-one:${config.model}`;
+
+  // Keep-warm: one timer per provider, and the server builds one provider per
+  // configured entry, so one per process. A ping is skipped while a real
+  // decision is in flight; on a small box the pings would otherwise queue
+  // ahead of visitors' requests until every one of them timed out.
+  let inflight = 0;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  if (config.keepWarmMs !== undefined) {
+    const ping = () => {
+      if (inflight > 0) return;
+      void askSystemOne(config, KEEP_WARM_PROMPT, KEEP_WARM_QUESTIONS);
+    };
+    timer = setInterval(ping, config.keepWarmMs);
+    timer.unref?.();
+    ping();
+  }
+  const decide = async (prompt: string, questions: SystemOneQuestions) => {
+    inflight += 1;
+    try {
+      return await askSystemOne(config, prompt, questions);
+    } finally {
+      inflight -= 1;
+    }
+  };
 
   const classify = (
     decision: SystemOneDecision,
@@ -1314,6 +1848,219 @@ export function createSystemOnePlanProvider(
     classification,
   });
 
+  const question = (
+    candidates: SystemOneCandidate[],
+    classification: SystemOneClassification,
+  ): PlanProviderResult => ({
+    modelId,
+    value: {
+      status: "needs-clarification",
+      question: SYSTEM_ONE_CLARIFICATION_QUESTION,
+      options: candidates.map((candidate) => candidate.label),
+      candidates,
+    },
+    usage: { calls: 0 },
+    classification: {
+      ...classification,
+      candidateIds: candidates.map((candidate) => candidate.capabilityId),
+    },
+  });
+
+  /** The plan on screen when this revision is the rules' to make, else nothing. */
+  const revisionPlan = (planning: PlanningContext): PlanV3_1 | undefined =>
+    planning.stage === "revision" && !fallback ? planning.previousPlan : undefined;
+
+  const maxPanels = (planning: PlanningContext): number =>
+    planning.site.getSurface(planning.surfaceId)?.maxComponents ?? DEFAULT_MAX_PANELS;
+
+  /** The draft for one fast-path capability: the host's own rule first, then the catalog's. */
+  const draftFor = (
+    prompt: string,
+    capabilityId: string,
+    planning: PlanningContext,
+  ): { ok: true; draft: SystemOneDraft } | { ok: false; reason: string } => {
+    const hosted = hostRules.draft?.({
+      prompt,
+      capabilityId,
+      surfaceId: planning.surfaceId,
+    });
+    if (hosted) return { ok: true, draft: hosted as SystemOneDraft };
+    const drafted = buildSystemOneDraft({
+      prompt,
+      capabilityId,
+      plannerManifest: planning.plannerManifest,
+      site: planning.site,
+      surfaceId: planning.surfaceId,
+    });
+    return drafted.ok
+      ? { ok: true, draft: drafted.draft }
+      : { ok: false, reason: drafted.reason };
+  };
+
+  /** On a revision the rules make, the draft joins the view on screen; otherwise it is the view. */
+  const placed = (
+    draft: SystemOneDraft,
+    planning: PlanningContext,
+  ): SystemOneDraft | undefined => {
+    const previous = revisionPlan(planning);
+    if (!previous) return draft;
+    return mergeIntoPlan({
+      previousPlan: previous,
+      surfaceId: planning.surfaceId,
+      draft,
+      maxPanels: maxPanels(planning),
+    });
+  };
+
+  /** Whether a capability takes the prompt as free text, for the compound rule. */
+  const freeTextFor = (capabilityId: string, planning: PlanningContext): boolean => {
+    const capability = planning.plannerManifest.capabilities.find(
+      (candidate) => candidate.id === capabilityId,
+    );
+    return capability ? capabilityTakesFreeText(capability) : false;
+  };
+
+  /** A stage the host's rules may speak at: a fresh prompt, or a revision the rules make. */
+  const hostStage = (stage: PlanningContext["stage"]): boolean =>
+    stage === "initial" || (stage === "revision" && !fallback);
+
+  /**
+   * The host's `refuse`, applied to a decision the endpoint made: a prompt the
+   * site knows is out of scope ("salary" on a question dashboard), declined in
+   * the site's own words. Refused outright, fallback or not — the host said
+   * so — and recorded as `host-refusal` with the rule's reason.
+   */
+  const hostRefused = (
+    prompt: string,
+    decision: SystemOneDecision,
+    stage: PlanningContext["stage"],
+  ): { route: SystemOneRoute; hostRule: string; message: string } | undefined => {
+    if (!hostRules.refuse || !decision.ok || !hostStage(stage)) return undefined;
+    const declined = hostRules.refuse({
+      prompt,
+      decision: {
+        capabilityId: decision.capabilityId,
+        confidence: decision.confidence,
+        inScope: decision.inScope,
+      },
+    });
+    if (!declined || !declined.message.trim()) return undefined;
+    return {
+      route: { path: "refuse", reason: "host-refusal" },
+      hostRule: declined.reason,
+      message: declined.message.replace(/[<>]/g, "").trim(),
+    };
+  };
+
+  /**
+   * The host's `override`, applied to a decision the endpoint made. Only at a
+   * stage the rules answer, and never past a guard: the host names the
+   * capability, not whether the prompt is safe to answer.
+   */
+  const overridden = (
+    prompt: string,
+    decision: SystemOneDecision,
+    planning: PlanningContext,
+    stage: PlanningContext["stage"],
+  ): (SystemOneRoute & { hostRule: string }) | undefined => {
+    if (!hostRules.override || !decision.ok) return undefined;
+    if (!hostStage(stage)) return undefined;
+    const forced = hostRules.override({
+      prompt,
+      decision: {
+        capabilityId: decision.capabilityId,
+        confidence: decision.confidence,
+        inScope: decision.inScope,
+      },
+      capabilityIds: planning.capabilityIds,
+    });
+    if (!forced || !planning.capabilityIds.includes(forced.capabilityId))
+      return undefined;
+    const guard = guardPrompt(
+      prompt,
+      vocabularyFor(prompt, forced.capabilityId, planning),
+      { freeText: freeTextFor(forced.capabilityId, planning) },
+    );
+    if (guard) {
+      return {
+        path: fallback ? "fallback" : "refuse",
+        reason: guard,
+        hostRule: forced.reason,
+      };
+    }
+    return {
+      path: "fast",
+      reason: "host-override",
+      capabilityId: forced.capabilityId,
+      hostRule: forced.reason,
+    };
+  };
+
+  /** One prompt decided and routed at a stage: the decision, the route, and the host rule if one spoke. */
+  const routeOne = async (
+    prompt: string,
+    planning: PlanningContext,
+    stage: PlanningContext["stage"],
+    questions: SystemOneQuestions,
+  ) => {
+    const decision = await decide(prompt, questions);
+    const vocabulary = decision.ok
+      ? vocabularyFor(prompt, decision.capabilityId, planning)
+      : [];
+    const declined = hostRefused(prompt, decision, stage);
+    if (declined) return { decision, ...declined };
+    const forced = overridden(prompt, decision, planning, stage);
+    const route: SystemOneRoute =
+      forced ??
+      routeSystemOne({
+        prompt,
+        stage,
+        decision,
+        vocabulary,
+        threshold,
+        refusalThreshold,
+        clarificationThreshold,
+        hasFallback: Boolean(fallback),
+        freeText: decision.ok && freeTextFor(decision.capabilityId, planning),
+      });
+    return { decision, route, hostRule: forced?.hostRule, message: undefined };
+  };
+
+  /**
+   * A compound prompt with no language model: each part decided on its own,
+   * one panel per part when every part is confident and draftable. Anything
+   * less returns nothing, and the whole prompt is refused as compound — a
+   * half-answered "X and Y" reads as X alone, which is worse than asking.
+   */
+  const compoundByParts = async (
+    planning: PlanningContext,
+    questions: SystemOneQuestions,
+  ): Promise<
+    { value: SystemOneDraft; durationMs: number; parts: number } | undefined
+  > => {
+    const parts = splitCompound(planning.prompt);
+    if (!parts) return undefined;
+    const outcomes = await Promise.all(
+      parts.map((part) => routeOne(part, planning, "initial", questions)),
+    );
+    const durationMs = outcomes.reduce(
+      (sum, outcome) => sum + outcome.decision.durationMs,
+      0,
+    );
+    let merged: SystemOneDraft | undefined;
+    for (const [index, outcome] of outcomes.entries()) {
+      if (outcome.route.path !== "fast" || !outcome.route.capabilityId) return undefined;
+      const drafted = draftFor(parts[index], outcome.route.capabilityId, planning);
+      if (!drafted.ok) return undefined;
+      merged = merged
+        ? appendDraft(merged, drafted.draft, maxPanels(planning))
+        : drafted.draft;
+    }
+    if (!merged) return undefined;
+    const value = placed(merged, planning);
+    return value ? { value, durationMs, parts: parts.length } : undefined;
+  };
+
   /**
    * Carries a route out: the draft, the question, the fallback call, or the
    * refusal. `record` turns the route actually taken into its classification,
@@ -1327,21 +2074,42 @@ export function createSystemOnePlanProvider(
     decision?: SystemOneDecision,
   ): Promise<PlanProviderResult> => {
     const prompt = planning.prompt;
+    const probabilities =
+      decision?.ok && decision.probabilities
+        ? { probabilities: decision.probabilities }
+        : {};
     if (route.path === "fast" && route.capabilityId) {
-      const drafted = buildSystemOneDraft({
-        prompt,
-        capabilityId: route.capabilityId,
-        plannerManifest: planning.plannerManifest,
-        site: planning.site,
-        surfaceId: planning.surfaceId,
-      });
+      const drafted = draftFor(prompt, route.capabilityId, planning);
       if (drafted.ok) {
-        return {
-          modelId,
-          value: drafted.draft,
-          usage: { calls: 0 },
-          classification: record(route),
-        };
+        const value = placed(drafted.draft, planning);
+        if (value) {
+          return { modelId, value, usage: { calls: 0 }, classification: record(route) };
+        }
+        // The plan on screen binds a composition or a join: not a view these
+        // rules can add to without a language model's reading of it.
+        return refusal(record({ path: "refuse", reason: "revision" }));
+      }
+      // No value for this capability ("top answerers" with no tag named).
+      // With no language model, the other capabilities are a better answer
+      // than a refusal when there are at least two to offer.
+      if (!fallback) {
+        const candidates = systemOneCandidates({
+          prompt,
+          pickedCapabilityId: route.capabilityId,
+          ...probabilities,
+          plannerManifest: planning.plannerManifest,
+          capabilityIds: planning.capabilityIds.filter((id) => id !== route.capabilityId),
+        });
+        if (candidates.length >= MIN_CANDIDATES) {
+          return question(
+            candidates,
+            record({
+              path: "clarify",
+              reason: "no-draft",
+              capabilityId: route.capabilityId,
+            }),
+          );
+        }
       }
       const deferred: SystemOneRoute = {
         path: fallback ? "fallback" : "refuse",
@@ -1358,9 +2126,7 @@ export function createSystemOnePlanProvider(
       const candidates = systemOneCandidates({
         prompt,
         pickedCapabilityId: route.capabilityId,
-        ...(decision?.ok && decision.probabilities
-          ? { probabilities: decision.probabilities }
-          : {}),
+        ...probabilities,
         plannerManifest: planning.plannerManifest,
         capabilityIds: planning.capabilityIds,
       });
@@ -1371,20 +2137,7 @@ export function createSystemOnePlanProvider(
       if (candidates.length < MIN_CANDIDATES) {
         return refusal(record({ path: "refuse", reason: "low-confidence" }));
       }
-      return {
-        modelId,
-        value: {
-          status: "needs-clarification",
-          question: SYSTEM_ONE_CLARIFICATION_QUESTION,
-          options: candidates.map((candidate) => candidate.label),
-          candidates,
-        },
-        usage: { calls: 0 },
-        classification: {
-          ...record(route),
-          candidateIds: candidates.map((candidate) => candidate.capabilityId),
-        },
-      };
+      return question(candidates, record(route));
     }
     if (route.path === "fallback" && fallback) {
       return withClassification(await fallback.generatePlan(request), record(route));
@@ -1394,6 +2147,10 @@ export function createSystemOnePlanProvider(
 
   return {
     id: config.id,
+    close() {
+      if (timer !== undefined) clearInterval(timer);
+      timer = undefined;
+    },
     async generatePlan(request: PlanProviderRequest): Promise<PlanProviderResult> {
       const planning = request.planning;
       if (!planning) {
@@ -1406,6 +2163,7 @@ export function createSystemOnePlanProvider(
         planning.capabilityIds,
       );
       const prompt = planning.prompt;
+      const staged = planning.stage !== "initial" ? { stage: planning.stage } : {};
 
       if (config.shadow && fallback) {
         // Both at once: the decision must not add its latency to the
@@ -1415,22 +2173,33 @@ export function createSystemOnePlanProvider(
             (result) => ({ ok: true as const, result }),
             (error: unknown) => ({ ok: false as const, error }),
           ),
-          askSystemOne(config, prompt, questions),
+          decide(prompt, questions),
         ]);
         const vocabulary = decision.ok
           ? vocabularyFor(prompt, decision.capabilityId, planning)
           : [];
-        const route = routeSystemOne({
-          prompt,
-          stage: planning.stage,
-          decision,
-          vocabulary,
-          threshold,
-          refusalThreshold,
-          hasFallback: true,
-        });
+        const declined = hostRefused(prompt, decision, planning.stage);
+        const forced = declined
+          ? undefined
+          : overridden(prompt, decision, planning, planning.stage);
+        const route: SystemOneRoute =
+          declined?.route ??
+          forced ??
+          routeSystemOne({
+            prompt,
+            stage: planning.stage,
+            decision,
+            vocabulary,
+            threshold,
+            refusalThreshold,
+            hasFallback: true,
+            freeText: decision.ok && freeTextFor(decision.capabilityId, planning),
+          });
+        const hostRule = declined?.hostRule ?? forced?.hostRule;
         const classification: SystemOneClassification = {
           ...classify(decision, route),
+          ...(hostRule ? { hostRule } : {}),
+          ...staged,
           shadow: true,
           ...compareWithPlanner(decision, outcome.ok ? outcome.result.value : undefined),
         };
@@ -1451,34 +2220,77 @@ export function createSystemOnePlanProvider(
           capabilityIds: planning.capabilityIds,
           vocabulary: vocabularyFor(prompt, chosen, planning),
           hasFallback: Boolean(fallback),
+          freeText: freeTextFor(chosen, planning),
         });
-        return settle(request, planning, route, (taken) => classifyChosen(chosen, taken));
+        return settle(request, planning, route, (taken) => ({
+          ...classifyChosen(chosen, taken),
+          ...staged,
+        }));
+      }
+
+      // "As a table", with nothing else named: the last panel on screen,
+      // shown another way. No decision to make, so none is asked.
+      const previous = revisionPlan(planning);
+      if (previous && isPresentationOnly(prompt)) {
+        const shown = representLastPanel({
+          prompt,
+          previousPlan: previous,
+          surfaceId: planning.surfaceId,
+          plannerManifest: planning.plannerManifest,
+          site: planning.site,
+        });
+        const base = { modelId, durationMs: 0, outcome: "ok" as const, ...staged };
+        if (shown.ok) {
+          return {
+            modelId,
+            value: shown.draft,
+            usage: { calls: 0 },
+            classification: { ...base, path: "fast", reason: "presentation" },
+          };
+        }
+        return refusal({ ...base, path: "refuse", reason: "no-presentation" });
       }
 
       // The decision is asked before the guards run, so a guarded prompt is
       // still recorded with what the model would have said — that is the
       // number a host tunes thresholds against.
-      const decision = await askSystemOne(config, prompt, questions);
-      const vocabulary = decision.ok
-        ? vocabularyFor(prompt, decision.capabilityId, planning)
-        : [];
-      const route = routeSystemOne({
+      const { decision, route, hostRule, message } = await routeOne(
         prompt,
-        stage: planning.stage,
-        decision,
-        vocabulary,
-        threshold,
-        refusalThreshold,
-        clarificationThreshold,
-        hasFallback: Boolean(fallback),
-      });
-      return settle(
-        request,
         planning,
-        route,
-        (taken) => classify(decision, taken),
-        decision,
+        planning.stage,
+        questions,
       );
+      const record = (taken: SystemOneRoute): SystemOneClassification => ({
+        ...classify(decision, taken),
+        ...(hostRule ? { hostRule } : {}),
+        ...staged,
+      });
+      // The host declined in its own words: final, whatever else is configured.
+      if (route.reason === "host-refusal" && message) {
+        return {
+          modelId,
+          value: { status: "unsupported", reason: message },
+          usage: { calls: 0 },
+          classification: record(route),
+        };
+      }
+
+      if (route.reason === "compound-prompt" && !fallback) {
+        const split = await compoundByParts(planning, questions);
+        if (split) {
+          return {
+            modelId,
+            value: split.value,
+            usage: { calls: 0 },
+            classification: {
+              ...record({ path: "fast", reason: "compound-by-parts" }),
+              durationMs: decision.durationMs + split.durationMs,
+              parts: split.parts,
+            },
+          };
+        }
+      }
+      return settle(request, planning, route, record, decision);
     },
   };
 }

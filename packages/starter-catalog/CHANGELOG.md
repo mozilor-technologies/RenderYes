@@ -1,5 +1,14 @@
 # @renderyes/starter-catalog
 
+## 0.2.0
+
+### Patch Changes
+
+- Updated dependencies [e653d9a]
+- Updated dependencies [aafe0bb]
+  - @renderyes/react@0.2.0
+  - @renderyes/site-sdk@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes

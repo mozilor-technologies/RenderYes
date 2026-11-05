@@ -1,5 +1,13 @@
 # @renderyes/data-runtime
 
+## 0.2.0
+
+### Patch Changes
+
+- Updated dependencies [aafe0bb]
+  - @renderyes/core@0.2.0
+  - @renderyes/capability-catalog@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes

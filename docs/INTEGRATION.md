@@ -426,6 +426,78 @@ for (const failure of restored.failures) {
 A record that no longer validates is reported, not thrown: one stale catalog
 should not stop the process from starting and serving the others.
 
+### 2.3 Pasted prompts and the visitor's website address
+
+Visitors paste: a developer's note, a forwarded email. Two settings are for a
+site whose visitors do. Both follow the decision in
+[`PRODUCT.md`](https://github.com/mozilor-technologies/RenderYes/blob/main/docs/PRODUCT.md#pasted-text-prompt-length-and-values-read-from-a-prompt-2026-11-09):
+pasted text is untrusted input, a longer limit is the site's choice, and
+identifiers are read by code, never by the model.
+
+**A longer prompt.** `maxPromptLength` raises (or lowers) the 2,000-character
+ceiling. The check runs before any provider is called. What a raise costs is in
+§6.
+
+**The visitor's website address.** With `promptExtraction`, the server reads the
+one website the prompt names and returns it, validated, as `extracted` on a
+successful compose or reopen:
+
+```ts
+const renderYes = createViewServer({
+  host,
+  resolveSession,
+  maxPromptLength: 6000,
+  // Skip your own domain: "I read on cookieyes.com that…" is not their site.
+  promptExtraction: { websiteAddress: { ignoreHosts: ["cookieyes.com"] } },
+});
+```
+
+"Store is candlecraft.example on Shopify" yields
+`{ websiteAddress: "https://candlecraft.example" }`. The reader is
+`extractWebsiteAddress` from `@renderyes/core` (re-exported by
+`@renderyes/server`), and what it keeps is deliberately narrow:
+
+- the origin only, never a path, query or fragment, which can carry a token or
+  text written to steer a model;
+- `http:` and `https:` only, so `javascript:`, `data:` and every other scheme
+  yield nothing;
+- nothing from a token with an `@` in it, so an email address or a URL with
+  credentials yields nothing;
+- no IP literal, `localhost`, `.local` or single-label host;
+- nothing at all when the prompt names two different sites (one host with and
+  without `www.` counts as one).
+
+Validated is not verified. The address is the visitor's claim, checked for form
+only. It says nothing about who owns the site, so pre-fill a field the visitor
+can see and correct; never act on that site without them confirming.
+
+The value never enters the plan, a component's props, the planner's contract,
+`onComposeMetrics` or `onModelCall`. A model that writes an address into its
+plan does not set it. It is re-read from the prompt on every compose and reopen
+and never stored. A reopened saved view reads the prompt it was saved with, which
+for a revised view is the revision's ("only the EU laws"), so a site named only
+in the first prompt is not there after a reopen.
+
+In the browser, `useViewCompose().extracted` holds it, re-checked on arrival. A
+component the host registers can read it for its own handover link:
+
+```tsx
+import { useViewCompose } from "@renderyes/react";
+
+function InstallGuide({ guide }: { guide?: { platform: string } }) {
+  const { extracted } = useViewCompose();
+  const setup = new URL("/setup", location.origin);
+  if (guide) setup.searchParams.set("platform", guide.platform);
+  if (extracted.websiteAddress) setup.searchParams.set("site", extracted.websiteAddress);
+  return <a href={setup.toString()}>Continue to setup</a>;
+}
+```
+
+Carry it on its own. A query string ends up in logs, history and `Referer`
+headers, so never put the address there beside anything personal (an email, a
+name, an account id). If the handover needs those too, send them in a `POST`
+body or keep them server-side.
+
 ## 3. Approve catalogs (one-time, per host, per catalog change)
 
 The review UI — `npx @renderyes/catalog-review`, or `apps/catalog-review` in
@@ -706,6 +778,41 @@ Plan caching is off unless you supply it because cached plans can be shared
 across visitors. The compose response reports
 `cached: true | false` so you can instrument the hit rate. Pass your own object
 implementing `PlanCache` (`get`/`set`) to back it with Redis or similar.
+
+**Opt in: a longer prompt ceiling, at a cost.** `maxPromptLength` (default
+2,000 characters) is the most direct cost lever a visitor has, which is why only
+the site can move it. Every character of the prompt is sent to the language
+model on every planning attempt, and a compose makes up to three (one, plus up
+to two repairs). Measured on the CookieYes demo with gpt-4o, a 56-character
+prompt cost 3,383 input tokens and a 270-character pasted note 3,432: about
+4.4 characters per token on top of a ~3,400-token contract. So:
+
+| Ceiling         | Prompt tokens, worst case | Per attempt, vs. that contract | Worst case per compose (3 attempts) |
+| --------------- | ------------------------: | -----------------------------: | ----------------------------------: |
+| 2,000 (default) |                      ~450 |                           +13% |                       ~11,600 input |
+| 6,000           |                    ~1,400 |                           +40% |                       ~14,300 input |
+| 20,000          |                    ~4,500 |                          +130% |                       ~23,800 input |
+
+A smaller contract makes the paste a larger share. Pair a raise with
+`allowCompose`, which bounds how many composes a visitor can run at all.
+
+System One reads less than that, at any ceiling. The shipped checkpoint has a
+512-token input window shared by the prompt and the catalog's purpose lines. On
+the CookieYes demo, a neutral paste with the question at the end was answered on
+the fast path at 945 characters. From about 1,800 characters on, the classifier
+no longer saw the question and answered `none`, with the same confidence at
+1,805, 5,245 and 17,285 characters. That is under the 2,000 default, so a
+forwarded email can reach it with no configuration change. It is the safe
+failure: with a fallback the prompt goes to the language model, which reads all
+of it, and without one it is refused. A model-only site whose visitors paste
+should expect long pastes to be refused unless the ask comes first. Guards read
+the whole prompt, whatever its length: an instruction or an action verb anywhere
+in a paste routes it away from the fast path.
+
+A prompt over the ceiling is a `400` with `kind: "prompt-too-long"` (on the
+stream, a `RUN_ERROR` of that kind), and `useViewCompose` tells the visitor to
+keep the part they want answered, with the site's limit. Every other refusal
+before planning says the opposite, that it is not about their question.
 
 **Prompt shape examples.** The system prompt includes worked examples of the
 required output shape by default. Their ids are placeholders, not catalog ids.
@@ -1054,7 +1161,7 @@ Six limits, all overridable:
 | `SystemOneProviderConfig.timeoutMs`         | 3s         | Per decision call. A warm decision takes about 200 ms; past this the model server is cold or absent, and the prompt takes the fallback or is refused.                                                                                                        |
 | `ViewServerConfig.composeDeadlineMs`        | 45s        | Wall clock across the _whole_ request — planning and execution. This is the ceiling that actually bounds a compose; it is reported back on the envelope and on `RUN_STARTED`, allowing the client to derive its timeout. Refine and reopen draw from it too. |
 | `ViewServerConfig.planDeadlineMs`           | 40s        | Wall clock across the planning phase, every repair attempt included. Clamped to sit inside `composeDeadlineMs`: the two cannot sum past the request.                                                                                                         |
-| `MAX_PROMPT_LENGTH`                         | 2000 chars | A visitor-facing route forwards prompts to a model that bills by token. Rejected before the provider is called, so an oversized prompt costs nothing.                                                                                                        |
+| `ViewServerConfig.maxPromptLength`          | 2000 chars | A visitor-facing route forwards prompts to a model that bills by token. Rejected before the provider is called, so an oversized prompt costs nothing. Raise it for pasted text at the cost in §6; the default is exported as `MAX_PROMPT_LENGTH`.            |
 | `DataExecutorOptions.maxConcurrentRequests` | 6          | Without a cap, a twelve-capability plan opens twelve simultaneous connections to your own API. The visitor waits for the slowest either way.                                                                                                                 |
 
 ## Current scope

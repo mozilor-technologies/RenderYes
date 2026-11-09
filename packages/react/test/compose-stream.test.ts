@@ -171,6 +171,64 @@ describe("applyComposeEvent", () => {
     expect(restarted.failure).toBeNull();
     expect(restarted.finished).toBe(false);
   });
+
+  it("keeps the website address RUN_FINISHED carries, re-checked", () => {
+    const state = apply([
+      event("RUN_STARTED", { catalogId: "c", surfaceId: "main" }),
+      event("RUN_FINISHED", {
+        planId: "plan-1",
+        extracted: { websiteAddress: "https://candlecraft.example/shop?x=1" },
+      }),
+    ]);
+    // Normalised again on arrival: the origin, never the path or query.
+    expect(state.extracted).toEqual({ websiteAddress: "https://candlecraft.example" });
+  });
+
+  it("drops an extracted value that fails the same check, rather than repairing it", () => {
+    for (const websiteAddress of [
+      "javascript:alert(1)",
+      "https://admin:pw@candlecraft.example",
+      "http://localhost:3000",
+      42,
+    ]) {
+      const state = apply([
+        event("RUN_STARTED", { catalogId: "c", surfaceId: "main" }),
+        event("RUN_FINISHED", { planId: "plan-1", extracted: { websiteAddress } }),
+      ]);
+      expect(state.extracted).toEqual({});
+    }
+  });
+
+  it("sets nothing on a finish that is not a clean success, as the batch path does", () => {
+    for (const fields of [
+      { kind: "data-unavailable", reason: "The data could not be loaded." },
+      { fellBack: true, kind: "invalid", reason: "That change could not be applied." },
+    ]) {
+      const state = apply([
+        event("RUN_STARTED", { catalogId: "c", surfaceId: "main" }),
+        event("RUN_FINISHED", {
+          planId: "plan-1",
+          ...fields,
+          extracted: { websiteAddress: "https://candlecraft.example" },
+        }),
+      ]);
+      expect(state.extracted).toBeUndefined();
+    }
+  });
+
+  it("a new run starts with nothing extracted", () => {
+    const finished = apply([
+      event("RUN_FINISHED", {
+        planId: "plan-1",
+        extracted: { websiteAddress: "https://candlecraft.example" },
+      }),
+    ]);
+    const restarted = applyComposeEvent(
+      finished,
+      event("RUN_STARTED", { catalogId: "c", surfaceId: "main" }),
+    );
+    expect(restarted.extracted).toBeUndefined();
+  });
 });
 
 describe("readComposeStream", () => {

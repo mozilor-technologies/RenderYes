@@ -59,6 +59,19 @@ composes the same prompt with that capability fixed and no model call.
 `issues` contains validator paths and schema messages for host logging. Do not
 render it to visitors.
 
+`extracted` holds values the service read out of the visitor's prompt by
+deterministic code, never by a model, when the server's `promptExtraction` is
+on: today `websiteAddress`, the one website the prompt names, as an origin. It
+follows the view on screen (a fresh compose or reopen replaces it, a revision
+that names no site keeps it, `reset` clears it) and is `{}` otherwise. The
+batch result and `RUN_FINISHED` carry the same object; the hook re-checks each
+value on arrival. See `INTEGRATION.md` §2.3.
+
+A prompt over the server's `maxPromptLength` fails with `errorKind`
+`"prompt-too-long"` and copy telling the visitor to shorten it; the server
+throws `PromptTooLongError` (`kind: "prompt-too-long"`, a `400` on the batch
+route).
+
 ## HTTP service
 
 `createViewHttpHandler` owns the fixed paths exported as `VIEW_HTTP_ROUTES`.
@@ -78,8 +91,13 @@ Visitor routes are called by `@renderyes/react`; admin routes are gated by
   action, including refine, revise, save, and reopen.
 - `catalogStore` persists published catalogs. Call
   `restorePublishedCatalogs()` once before accepting requests.
-- `allowCompose`, `planDeadlineMs`, `composeDeadlineMs`, and the contract budget
-  fields are the main public-deployment cost controls.
+- `allowCompose`, `planDeadlineMs`, `composeDeadlineMs`, `maxPromptLength` and
+  the contract budget fields are the main public-deployment cost controls.
+  `maxPromptLength` defaults to `MAX_PROMPT_LENGTH` (2000 characters); a longer
+  prompt is rejected before any provider is called.
+- `promptExtraction` turns on values read out of the prompt by code
+  (`{ websiteAddress: true }` or `{ websiteAddress: { ignoreHosts } }`),
+  returned as `extracted` on a successful compose or reopen. Off by default.
 
 ### `createViewHttpHandler` options
 

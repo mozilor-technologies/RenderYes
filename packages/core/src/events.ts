@@ -1,3 +1,5 @@
+import type { ExtractedValues } from "./website-address.js";
+
 /**
  * Compose events: what a compose emits while it runs, instead of what it
  * returns once it has finished.
@@ -191,6 +193,13 @@ export type ComposeEvent =
       options?: string[];
       /** As on RUN_ERROR, for a fell-back revision that asked a question with capability candidates. */
       candidates?: ClarificationCandidate[];
+      /**
+       * Values read out of the prompt by deterministic code, when the server's
+       * `promptExtraction` is on and the prompt named one; the same object the
+       * batch result carries as `extracted`. A client re-checks each value
+       * (`normalizeWebsiteAddress`) rather than trusting the wire.
+       */
+      extracted?: ExtractedValues;
     });
 
 /**

@@ -398,6 +398,15 @@ A single natural-language goal produces an initial view. Suggested chips submit
 their text as that goal. A semantic revision sends a follow-up together with a
 summary of the current plan; autonomous or agentic loops are not implemented.
 
+The goal may be pasted text: a forwarded note or email. It is untrusted input
+like any prompt, bounded by `maxPromptLength` (2,000 characters unless the host
+raises it) before any provider is called. With `promptExtraction` on, the
+server also reads the one website address the prompt names, with deterministic
+code (`extractWebsiteAddress`, `@renderyes/core`), and returns it as `extracted`
+beside the view, never inside the `Plan`. The model never proposes the value and
+no model output is taken as it. See "Pasted text, prompt length, and values read
+from a prompt" in [`PRODUCT.md`](PRODUCT.md).
+
 ### 2. Plan (AI, constrained)
 
 Given the intent, selected surface, and two catalogs, a model produces a `Plan`.

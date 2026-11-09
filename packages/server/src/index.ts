@@ -51,9 +51,12 @@ import {
 } from "@renderyes/planner";
 import {
   diffDataModel,
+  extractWebsiteAddress,
   type ClarificationCandidate,
   type ComposeEvent,
   type DataRequestState,
+  type ExtractedValues,
+  type WebsiteAddressOptions,
 } from "@renderyes/core";
 import type { PlanV3_1 } from "@renderyes/core";
 import {
@@ -139,6 +142,17 @@ import {
 } from "./observability.js";
 
 export { createMemoryViewStore, type SavedView, type ViewStore } from "./views.js";
+
+/**
+ * The deterministic reader behind `promptExtraction`, for a host that wants
+ * the same value in its own backend handover. See `docs/PRODUCT.md`.
+ */
+export {
+  extractWebsiteAddress,
+  normalizeWebsiteAddress,
+  type ExtractedValues,
+  type WebsiteAddressOptions,
+} from "@renderyes/core";
 
 /**
  * Durable published catalogs. `createFileCatalogStore` lives in
@@ -391,6 +405,40 @@ export interface ViewServerConfig<Session> {
    * observability at all.
    */
   captureModelPrompts?: boolean;
+  /**
+   * Ceiling on a visitor's prompt, in characters. Defaults to
+   * `MAX_PROMPT_LENGTH` (2000). A longer prompt is rejected before any
+   * provider is called, so it costs nothing.
+   *
+   * Raise it when visitors paste rather than type: a forwarded email or a
+   * developer's note runs past 2000 characters easily. The prompt is sent to
+   * the language model on every planning attempt, so the raise is a raise in
+   * the worst-case bill of every compose — about one input token per four
+   * characters, times up to three attempts. That trade is the publisher's,
+   * which is why it is configuration and never something a request can ask
+   * for. Pasted text gets no exemption from any guard a typed prompt passes.
+   *
+   * A whole number of at least 3, the shortest prompt accepted at all.
+   */
+  maxPromptLength?: number;
+  /**
+   * Values read out of the visitor's prompt by deterministic code and returned
+   * on the compose result as `extracted`, for the host to use in its own
+   * handover. Off unless supplied.
+   *
+   * `websiteAddress`: the one website the prompt names, as an origin
+   * (`https://candlecraft.example`), so a "Continue to setup" link can carry
+   * the site the visitor pasted in. Read by `extractWebsiteAddress` from
+   * `@renderyes/core`, never by a model: no model output is ever taken as
+   * this value, and it is never placed in the `Plan`, a component's props or
+   * the planner's contract. Pass `{ ignoreHosts }` to skip the publisher's own
+   * domain. See "Pasted text, prompt length, and values read from a prompt" in
+   * `docs/PRODUCT.md`.
+   *
+   * The value is re-read from the prompt on every compose and reopen, never
+   * stored, and never reported to `onComposeMetrics` or `onModelCall`.
+   */
+  promptExtraction?: PromptExtractionConfig;
   /**
    * Wall-clock ceiling on the planning phase of one compose, shared across
    * every repair attempt. Defaults to `DEFAULT_PLAN_DEADLINE_MS`.
@@ -674,6 +722,9 @@ function assertHttpUrl(value: unknown, label: string): string {
  * an unbounded bill — and on a visitor-facing route, one anybody can run up.
  * 2000 characters is far beyond any real "show me X" intent while still
  * rejecting a pasted document outright, before it reaches a provider.
+ *
+ * The default for `ViewServerConfig.maxPromptLength`, which a publisher whose
+ * visitors paste longer text may raise at its own cost.
  */
 export const MAX_PROMPT_LENGTH = 2000;
 
@@ -842,13 +893,70 @@ export interface ComposeMetrics {
  * `MAX_PROMPT_LENGTH`. Throws rather than returning a result because every
  * caller treats a bad prompt as a request-level failure.
  */
-function assertPrompt(prompt: unknown): asserts prompt is string {
-  if (typeof prompt !== "string" || prompt.trim().length < 3) {
-    throw new Error("Prompt must contain at least 3 characters");
+function assertPrompt(
+  prompt: unknown,
+  maxLength: number = MAX_PROMPT_LENGTH,
+): asserts prompt is string {
+  if (typeof prompt !== "string" || prompt.trim().length < MIN_PROMPT_LENGTH) {
+    throw new Error(`Prompt must contain at least ${MIN_PROMPT_LENGTH} characters`);
   }
-  if (prompt.length > MAX_PROMPT_LENGTH) {
-    throw new Error(`Prompt must be at most ${MAX_PROMPT_LENGTH} characters`);
+  if (prompt.length > maxLength) {
+    throw new Error(`Prompt must be at most ${maxLength} characters`);
   }
+}
+
+/** The shortest prompt accepted: anything less is an empty or accidental submit. */
+const MIN_PROMPT_LENGTH = 3;
+
+/**
+ * `ViewServerConfig.promptExtraction` as a function of the prompt. Checked
+ * once at construction, so a misspelt option fails at boot rather than
+ * quietly extracting nothing.
+ */
+function promptExtractor(
+  config: PromptExtractionConfig | undefined,
+): (prompt: string) => ExtractedValues | undefined {
+  if (config === undefined) return () => undefined;
+  if (!isRecord(config)) {
+    throw new Error(
+      "promptExtraction must be an object such as { websiteAddress: true }",
+    );
+  }
+  const unknown = Object.keys(config).filter((key) => key !== "websiteAddress");
+  if (unknown.length > 0) {
+    throw new Error(
+      `promptExtraction does not take ${unknown.map((key) => `"${key}"`).join(", ")}; it reads websiteAddress only`,
+    );
+  }
+  const option = config.websiteAddress;
+  if (option === undefined || option === false) return () => undefined;
+  if (option !== true && !isRecord(option)) {
+    throw new Error("promptExtraction.websiteAddress must be true or { ignoreHosts }");
+  }
+  const ignoreHosts = option === true ? [] : (option.ignoreHosts ?? []);
+  if (
+    !Array.isArray(ignoreHosts) ||
+    ignoreHosts.some((host) => typeof host !== "string" || host.trim() === "")
+  ) {
+    throw new Error(
+      "promptExtraction.websiteAddress.ignoreHosts must be a list of host names",
+    );
+  }
+  return (prompt) => {
+    const websiteAddress = extractWebsiteAddress(prompt, { ignoreHosts });
+    return websiteAddress ? { websiteAddress } : undefined;
+  };
+}
+
+/** `ViewServerConfig.maxPromptLength`, checked once at construction. */
+function resolveMaxPromptLength(value: number | undefined): number {
+  if (value === undefined) return MAX_PROMPT_LENGTH;
+  if (!Number.isInteger(value) || value < MIN_PROMPT_LENGTH) {
+    throw new Error(
+      `maxPromptLength must be a whole number of at least ${MIN_PROMPT_LENGTH}; received ${String(value)}`,
+    );
+  }
+  return value;
 }
 
 /**
@@ -997,6 +1105,11 @@ export type PlanResult =
       results: Record<string, ExecutionResult>;
     };
 
+/** `ViewServerConfig.promptExtraction`. */
+export interface PromptExtractionConfig {
+  websiteAddress?: boolean | WebsiteAddressOptions;
+}
+
 /**
  * Result of `composeAgainstPublishedCatalogs`. `cached` reports only whether
  * the *plan* was reused from `planCache` — the data inside `messages` is
@@ -1139,6 +1252,12 @@ export type ComposeResult =
        * sentences, never data.
        */
       notices?: string[];
+      /**
+       * Values read out of the prompt by deterministic code, when the host
+       * enabled `promptExtraction` and the prompt named one. Never written by
+       * a model. Absent when nothing was found.
+       */
+      extracted?: ExtractedValues;
     };
 
 /** One entry of `ComposeResult.requests`. */
@@ -1814,6 +1933,8 @@ const VIEW_SERVER_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "allowCompose",
   "onModelCall",
   "captureModelPrompts",
+  "maxPromptLength",
+  "promptExtraction",
   "planDeadlineMs",
   "composeDeadlineMs",
   "contractTokenBudget",
@@ -1855,6 +1976,8 @@ export function createViewServer<Session>(
         ` Configuring one that does nothing is indistinguishable from one that does not work.`,
     );
   }
+  const maxPromptLength = resolveMaxPromptLength(config.maxPromptLength);
+  const extractFromPrompt = promptExtractor(config.promptExtraction);
   const store = createCapabilityCatalogStore();
   const uiStore = createSiteCatalogStore();
 
@@ -3203,7 +3326,7 @@ export function createViewServer<Session>(
       fallback: () => PlanProvider,
     ) => PlanProvider;
   }) {
-    assertPrompt(prompt);
+    assertPrompt(prompt, maxPromptLength);
     const registered = store.get(catalogId);
     if (!registered) {
       throw new Error(
@@ -3418,7 +3541,7 @@ export function createViewServer<Session>(
         ...fields,
       } as ComposeEvent);
 
-    assertPrompt(prompt);
+    assertPrompt(prompt, maxPromptLength);
     const registeredCatalog = store.get(catalogId);
     if (!registeredCatalog) {
       throw catalogUnavailableError(catalogId, "capability");
@@ -4023,10 +4146,12 @@ export function createViewServer<Session>(
         messages,
       };
     }
+    const extracted = extractFromPrompt(prompt);
     event("RUN_FINISHED", {
       planId: plan.planId,
       cached,
       ...(delivery === "partial" ? { partial: true } : {}),
+      ...(extracted ? { extracted } : {}),
     });
     return {
       ok: true,
@@ -4037,6 +4162,7 @@ export function createViewServer<Session>(
       ...(delivery === "partial" ? { partial: true as const } : {}),
       deadlineMs: composeDeadlineMs,
       messages,
+      ...(extracted ? { extracted } : {}),
     };
   }
 
@@ -4584,6 +4710,9 @@ export function createViewServer<Session>(
         allowCatalogDrift: true,
       });
 
+      // Re-read from the saved prompt rather than stored with the view: the
+      // value is the prompt's, and the rules that read it may have changed.
+      const extracted = extractFromPrompt(view.prompt);
       // `cached` is false because no plan cache was consulted — the plan came
       // from durable storage, and the data behind it was fetched just now.
       return {
@@ -4594,6 +4723,7 @@ export function createViewServer<Session>(
         planId: view.plan.planId,
         requests: summarizeRequests(view.plan, executedData),
         messages,
+        ...(extracted ? { extracted } : {}),
         // Replayed successfully, but against something other than what it was
         // built on. Individual data slots degrade on their own (a withdrawn
         // capability fails that slot, not the view), so "it rendered" does not

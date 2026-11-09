@@ -9,10 +9,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { ClarificationCandidate } from "@renderyes/core";
+import type { ClarificationCandidate, ExtractedValues } from "@renderyes/core";
 import { useView, type ViewConfig } from "./provider.js";
 import { topLevelPanelIds, withPanelOrder } from "./panels.js";
 import {
+  checkedExtracted,
   initialComposeStreamState,
   readComposeStream,
   type ComposeStage,
@@ -151,6 +152,19 @@ export interface ComposeSessionState {
    * what lets a table header trigger a sort of the view it belongs to.
    */
   planId: string | null;
+  /**
+   * Values the service read out of the visitor's prompt by deterministic
+   * code — never by a model — when the host turned on `promptExtraction` on
+   * the server. Today that is `websiteAddress`: the one website the prompt
+   * names, as an origin (`https://candlecraft.example`), for a handover link
+   * such as "Continue to setup". Each value is re-checked on arrival.
+   *
+   * Follows the view on screen: a fresh compose or a reopen replaces it, a
+   * revision that names no site keeps the one before, a failed compose leaves
+   * it alone, and `reset` clears it. Carry it on its own; never put it in a
+   * query string beside anything personal.
+   */
+  extracted: ExtractedValues;
   /**
    * Applies plan edits — sort, filter, limit, remove, reorder — with **no
    * model call**. Rejected if the edit would query something the catalog
@@ -456,6 +470,10 @@ export const HOST_ONLY_HOOK_FIELDS: readonly string[] = Object.freeze([
   // gray out a control, so the workspace shows a spinner for it nowhere. A
   // host that wants "saving…" chrome of its own has it.
   "reordering",
+  // Values read out of the prompt for the host's own handover link. What a
+  // site does with a visitor's website address is the host's call; no shipped
+  // component renders it.
+  "extracted",
 ]);
 
 /**
@@ -712,6 +730,15 @@ function useComposeSessionState(): ComposeState {
   const [issues, setIssues] = useState<readonly { path: string; message: string }[]>([]);
   const [messages, setMessages] = useState<readonly A2uiMessage[]>([]);
   const [planId, setPlanId] = useState<string | null>(null);
+  const [extracted, setExtracted] = useState<ExtractedValues>({});
+  /**
+   * Applies a successful compose's extracted values. A revision that named no
+   * site keeps the one the view already had; anything else is replaced.
+   */
+  function applyExtracted(next: ExtractedValues, revision: boolean) {
+    if (revision && next.websiteAddress === undefined) return;
+    setExtracted(next);
+  }
   const [stream, setStream] = useState<ComposeStreamState>(initialComposeStreamState);
 
   /**
@@ -992,6 +1019,8 @@ function useComposeSessionState(): ComposeState {
           // silently treating this as success would report a partial view as
           // complete.
           fail("network", undefined);
+        } else if (!streamed.fellBack) {
+          applyExtracted(streamed.extracted, Boolean(options.revise && planId));
         }
         return;
       }
@@ -1019,6 +1048,10 @@ function useComposeSessionState(): ComposeState {
       }
       setMessages(payload.messages as A2uiMessage[]);
       if (typeof payload.planId === "string") setPlanId(payload.planId);
+      applyExtracted(
+        checkedExtracted(payload.extracted),
+        Boolean(options.revise && planId),
+      );
       if (typeof payload.deadlineMs === "number")
         serverDeadlineMs.current = payload.deadlineMs;
       applyRequestSummaries(payload.requests);
@@ -1257,6 +1290,7 @@ function useComposeSessionState(): ComposeState {
     clearPendingReorder();
     setMessages([]);
     setPlanId(null);
+    setExtracted({});
     setError(null);
     setErrorKind(null);
     setClarification(null);
@@ -1468,6 +1502,7 @@ function useComposeSessionState(): ComposeState {
       }
       setMessages(payload.messages as A2uiMessage[]);
       if (typeof payload.planId === "string") setPlanId(payload.planId);
+      setExtracted(checkedExtracted(payload.extracted));
       applyRequestSummaries(payload.requests);
       // Rendered, but against a catalog or component set that has moved. The
       // host decides how loudly to say so; without this it would present an
@@ -1522,6 +1557,7 @@ function useComposeSessionState(): ComposeState {
     issues,
     messages,
     planId,
+    extracted,
     revise: () => submit({ revise: true }),
     startOver: reset,
     stage: stream.stage,

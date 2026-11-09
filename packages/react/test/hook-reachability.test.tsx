@@ -172,6 +172,9 @@ describe("hook composition", () => {
       "clarification",
       "error",
       "errorKind",
+      // Values read out of the prompt by code for the host's handover link.
+      // Session-owned: they change when a compose or reopen lands.
+      "extracted",
       "failedRequests",
       "issues",
       "messages",

@@ -1,8 +1,10 @@
 import {
   applyDataModelPatch,
   createComposeEventParser,
+  normalizeWebsiteAddress,
   type ClarificationCandidate,
   type ComposeEvent,
+  type ExtractedValues,
 } from "@renderyes/core";
 
 /**
@@ -50,6 +52,11 @@ export interface ComposeStreamState {
   fellBack: boolean;
   /** True once a terminal event arrived. A stream that closes without one did not finish. */
   finished: boolean;
+  /**
+   * Values the server read out of the prompt by deterministic code, from
+   * RUN_FINISHED, each re-checked here. Empty when the server sent none.
+   */
+  extracted: ExtractedValues;
 }
 
 export const initialComposeStreamState: ComposeStreamState = {
@@ -61,6 +68,7 @@ export const initialComposeStreamState: ComposeStreamState = {
   failure: null,
   fellBack: false,
   finished: false,
+  extracted: {},
 };
 
 const dataModelIndex = (messages: readonly unknown[]): number =>
@@ -96,7 +104,12 @@ export function applyComposeEvent(
     case "STEP_STARTED":
       return {
         ...state,
-        stage: event.step === "plan" ? "planning" : event.step === "execute" ? "executing" : "rendering",
+        stage:
+          event.step === "plan"
+            ? "planning"
+            : event.step === "execute"
+              ? "executing"
+              : "rendering",
       };
 
     case "STEP_FINISHED":
@@ -174,6 +187,7 @@ export function applyComposeEvent(
         stage: "done",
         finished: true,
         ...(event.planId ? { planId: event.planId } : {}),
+        extracted: checkedExtracted(event.extracted),
         fellBack: event.fellBack === true,
         ...(event.fellBack === true
           ? {
@@ -192,6 +206,19 @@ export function applyComposeEvent(
     default:
       return state;
   }
+}
+
+/**
+ * The server's `extracted` values, each re-validated: a value that does not
+ * pass the same check that produced it is dropped, never repaired. Shared by
+ * the streamed and batch paths so the two cannot disagree.
+ */
+export function checkedExtracted(value: unknown): ExtractedValues {
+  if (typeof value !== "object" || value === null) return {};
+  const websiteAddress = normalizeWebsiteAddress(
+    (value as { websiteAddress?: unknown }).websiteAddress,
+  );
+  return websiteAddress ? { websiteAddress } : {};
 }
 
 /** How many data requests the skeleton describes, for a progress indicator. */

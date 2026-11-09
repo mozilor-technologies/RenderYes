@@ -100,6 +100,7 @@ dependency, even when the frontend already declares it.
 | Params     | Validated content params                                                                         | Credentials and injected identity                           |
 | Session    | Nothing                                                                                          | Complete host session, cookie, token, permission collection |
 | Identity   | Nothing in the plan                                                                              | Only required keys extracted and passed to the runtime      |
+| Prompt     | The visitor's text, pasted or typed, as untrusted input, up to `maxPromptLength`                 | Values read from it by code (`extracted.websiteAddress`)    |
 | Data       | No raw business rows                                                                             | Raw result, sensitive fields, validation/projection         |
 | Components | Semantic ID, description, closed props, compatible data slots                                    | React implementation and registered renderer paths          |
 | UI         | Approved composition intent                                                                      | Markup, CSS, responsive behavior, formatters                |

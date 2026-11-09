@@ -171,6 +171,47 @@ describe("applyComposeEvent", () => {
     expect(restarted.failure).toBeNull();
     expect(restarted.finished).toBe(false);
   });
+
+  it("keeps the website address RUN_FINISHED carries, re-checked", () => {
+    const state = apply([
+      event("RUN_STARTED", { catalogId: "c", surfaceId: "main" }),
+      event("RUN_FINISHED", {
+        planId: "plan-1",
+        extracted: { websiteAddress: "https://candlecraft.example/shop?x=1" },
+      }),
+    ]);
+    // Normalised again on arrival: the origin, never the path or query.
+    expect(state.extracted).toEqual({ websiteAddress: "https://candlecraft.example" });
+  });
+
+  it("drops an extracted value that fails the same check, rather than repairing it", () => {
+    for (const websiteAddress of [
+      "javascript:alert(1)",
+      "https://admin:pw@candlecraft.example",
+      "http://localhost:3000",
+      42,
+    ]) {
+      const state = apply([
+        event("RUN_STARTED", { catalogId: "c", surfaceId: "main" }),
+        event("RUN_FINISHED", { planId: "plan-1", extracted: { websiteAddress } }),
+      ]);
+      expect(state.extracted).toEqual({});
+    }
+  });
+
+  it("a new run starts with nothing extracted", () => {
+    const finished = apply([
+      event("RUN_FINISHED", {
+        planId: "plan-1",
+        extracted: { websiteAddress: "https://candlecraft.example" },
+      }),
+    ]);
+    const restarted = applyComposeEvent(
+      finished,
+      event("RUN_STARTED", { catalogId: "c", surfaceId: "main" }),
+    );
+    expect(restarted.extracted).toEqual({});
+  });
 });
 
 describe("readComposeStream", () => {

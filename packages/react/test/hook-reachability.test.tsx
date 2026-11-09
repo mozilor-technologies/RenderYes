@@ -53,6 +53,9 @@ const COMPONENT_SOURCES = [
   // would have turned a working surface into a documented absence, which is the
   // exact failure this test exists to catch, arriving through the test itself.
   "parts.tsx",
+  // The editable summary of what a view was built from: renders `understood`
+  // and sends `editInput`.
+  "understood.tsx",
 ];
 
 /**
@@ -170,6 +173,9 @@ describe("hook composition", () => {
       // like `answerClarification`, since it composes.
       "chooseCandidate",
       "clarification",
+      // A visitor's correction of what the view was built from: a refinement,
+      // session-owned like `refine`.
+      "editInput",
       "error",
       "errorKind",
       "failedRequests",
@@ -190,6 +196,8 @@ describe("hook composition", () => {
       "stage",
       "startOver",
       "submit",
+      // What the view was built from; changes exactly when messages do.
+      "understood",
     ]);
   });
 

@@ -453,7 +453,7 @@ One: the repair attempt goes to the fallback, or is refused.
 | the decision could not be made: timeout, non-200, unreadable or unadvertised choice                                                        | treated as low confidence: fallback, else refuse                                                                                                                                                                             |
 | choice is `none`, confidence ≥ `refusalThreshold` (0.98) and in-scope < 0.5                                                                | refuse without a model                                                                                                                                                                                                       |
 | choice is `none` otherwise                                                                                                                 | fallback, else refuse                                                                                                                                                                                                        |
-| confidence ≥ `threshold`                                                                                                                   | fast path: build the draft (`hostRules.draft` first, then the catalog rules); with no fallback, a draft the catalog cannot supply a value for becomes a question with the other capabilities                                 |
+| confidence ≥ `threshold`                                                                                                                   | fast path: build the draft (`hostRules.draft` first, then the catalog rules); a required argument with declared values the prompt does not name is left out, and the planner asks for it (see "What was understood"); with no fallback, any other value the catalog cannot supply becomes a question with the other capabilities |
 | no fallback, and confidence ≥ `clarificationThreshold` (0.5)                                                                               | ask: a question with two to four candidate capabilities                                                                                                                                                                      |
 | otherwise                                                                                                                                  | fallback, else refuse                                                                                                                                                                                                        |
 
@@ -528,6 +528,69 @@ everything they cannot express is deferred or refused.
 7. Reject unknown ids and invalid props. `composeDataPlan` can make up to two
    additional model attempts with validation feedback (`maxRetries`, default 2).
 
+### What was understood, and asking for what is missing
+
+Two visitor-facing contracts sit between validation and execution. Both are derived in code from
+the validated plan and the planner-safe manifest; neither reads the prompt or calls a model.
+
+**The summary.** `describeUnderstoodInputs(manifest, plan)` (`@renderyes/data-runtime`) lists, per
+data request, each input with a declared closed set of string values that the request uses: a
+capability argument whose schema states an `enum` (directly or on `items`), or a field in
+`supports.filterFields` whose data-type schema does, named in the filter with `eq`, `in` or
+`contains`. Each entry (`UnderstoodInput`, `@renderyes/core`) carries the values in effect in the
+catalog's spelling, every declared option, and `notFound`: values the request carries that match
+none of the declared ones, compared the way text filters compare (NFKC, trimmed, case-insensitive).
+The list rides in the data model's `__renderyes` envelope as `understood` on every path (compose,
+stream, refine, revise, reopen) and on `ComposeResult.understood`. `ViewWorkspace` renders it
+through `ViewUnderstood`. The declared lists here are read uncapped up to 200 values; the planner
+contract still shows a model at most 32, because it pays tokens for each one.
+
+"Not found" is detected, not reported by the model. A planner that keeps "Texas" in a `regions`
+filter produces a condition that matches nothing; the summary names it. Where the catalog declares
+values the contract does not show (a list field's `items`, or more than 32), the contract names
+those fields and asks the model to keep every value the visitor gave for them. A value the model
+drops entirely is not recoverable here. That is the remaining trust assumption on the language-model
+path; System One cannot name a value outside the catalog at all.
+
+A field the filter also excludes (`not-eq`, `not-in`, under `none`) is left out rather than
+misstated. A field mentioned in a shape an edit cannot rewrite (combined with other fields under
+`any`, or named twice) is listed with `editable: false`.
+
+**Editing.** `RefineOperation` gains `setInput {requestId, input: "param" | "filter", name,
+values}`, applied by `applyInputEdit`. It is refused unless `name` is one of the summary's inputs
+for that capability (so never a session or identity key, which the planner manifest does not hold,
+and never an argument or field without declared values) and every value is declared, in the
+catalog's own spelling. A filter is rewritten in the operator the plan used; values that were not
+found stay in the condition (they still match nothing, and stay visible); clearing every declared
+value removes the condition. `refineComposedView` now validates the params of every request a `setInput` changed (every request,
+for a held plan) against the capability's complete input schema (`validateCapabilityParams`), as
+well as every query, then executes. No model call. Like every refinement it re-executes the whole
+view, not only the edited request.
+
+**Asking for one missing input.** When clarification is allowed, the planner contract drops from
+`required` each required argument that has declared values and no default (read by the same
+`enumeratedInputs` the missing-input check uses, so nothing it lets a model omit is unaskable), and tells the model to
+leave it out rather than guess. System One's draft leaves such an argument out when the prompt
+names none of its values. `composeDataPlan` then checks the validated draft: exactly one missing
+argument of that kind, and nothing else missing, becomes `needs-clarification` with a fixed question (`Which <label>?`), the
+declared values as `options`, and `input: {requestId, capabilityId, kind: "param", name, label,
+options}` plus the held `pendingPlan`. Two or more missing, or one with no declared values, go to repair as before; a plan with a
+missing required value is never executed. When answering a
+question (`allowClarification: false`) the schema keeps `required`, so a missing value is repaired,
+never asked twice.
+
+The server holds the pending plan in its owner-scoped recent-plan map, marked pending, and adds
+`input.planId` to the result and to the streamed `RUN_ERROR` (or a fell-back revision's
+`RUN_FINISHED`). Nothing is executed. The answer is a `setInput` refinement of that plan; any other
+operation, a save, or a revision of a pending plan is refused. `useViewCompose().answerClarification`
+sends it when the question carries `input`. A host with no `resolveViewOwner` cannot hold a plan for
+anyone: the question and its options are returned without `input`, and an answer is composed as text
+as before.
+
+A value a model supplied for a required argument is kept even when the prompt never named it.
+Treating that as missing was tried and dropped: it turned ordinary inferences into questions for
+every existing host.
+
 ### 4. Resolve data (deterministic)
 
 For each reusable data request, the executor calls the named capability runtime with validated
@@ -539,8 +602,9 @@ provenance and freshness. The model is never in this loop.
 
 Map the resolved blocks to UI-catalog components. Starter components provide
 client-side interactions such as table filtering and sorting. `ViewWorkspace`
-provides save, reopen, pin, and panel reordering. Hosts can call deterministic
-refinement for sort, filter, limit, remove, and reorder operations; the package
+provides save, reopen, pin, and panel reordering, and `ViewUnderstood` the
+editable summary above. Hosts can call deterministic refinement for sort, filter,
+limit, remove, reorder and set-input operations; the package
 does not ship controls for every refinement. A model is invoked again only for
 a semantic revision the visitor submits.
 
@@ -589,6 +653,11 @@ Current failure behavior is explicit:
   plans without a model, and the chips carry a "show me the full site" way
   out. With a fallback, those prompts cost one language-model compose, exactly
   as without System One.
+- A required argument the visitor did not state, with declared values, is a
+  `needs-clarification` result for exactly that argument. Nothing is fetched
+  until the visitor picks one of the values; the pick is applied in code.
+- A value the visitor named that the catalog does not list stays in the
+  request, matches nothing, and is shown as not found in the summary.
 - Streaming emits pending slots before data settles. Data-request failures are
   isolated per slot, and successful slots remain renderable in a partial view.
 - A drifted saved view is attempted against current catalogs. Compatible plans

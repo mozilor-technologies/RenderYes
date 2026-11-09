@@ -5,6 +5,7 @@ import {
   executeDataRequest,
   executePlanData,
   executePlanDataRequests,
+  describeUnderstoodInputs,
   validateDataRequestQuery,
   type ExecutionResult,
   type GraphQlRuntimeConfig,
@@ -31,6 +32,7 @@ import {
   type ResolvedOperationClassification,
 } from "@renderyes/capability-catalog";
 import { GraphQlTransportError } from "@renderyes/capability-catalog/graphql";
+import { validateCapabilityParams } from "@renderyes/capability-catalog/server";
 import type {
   GraphQlOperationBinding,
   GraphQlTransportResponse,
@@ -52,7 +54,9 @@ import {
 import {
   diffDataModel,
   type ClarificationCandidate,
+  type ClarificationInput,
   type ComposeEvent,
+  type UnderstoodInput,
   type DataRequestState,
 } from "@renderyes/core";
 import type { PlanV3_1 } from "@renderyes/core";
@@ -1053,6 +1057,16 @@ export type ComposeResult =
        * to answer — that compose makes no model call.
        */
       candidates?: readonly ClarificationCandidate[];
+      /**
+       * Present when the question asks for one required input the visitor did
+       * not state: the declared values, and the held plan (`input.planId`) an
+       * answer applies to. Answer with `refineComposedView` and one `setInput`
+       * operation naming `input.requestId` and `input.name` — no model call,
+       * and nothing was fetched before it. Absent when the host configures no
+       * `resolveViewOwner`, since a held plan must belong to someone; the
+       * question and `options` still arrive.
+       */
+      input?: ClarificationInput;
       issues: DataPlanIssue[];
       /**
        * Set when a failed *revision* fell back to the view the visitor already
@@ -1107,6 +1121,13 @@ export type ComposeResult =
        * already in hand here.
        */
       requests: ComposedRequestSummary[];
+      /**
+       * What the view's requests were narrowed by — arguments and filter
+       * values with declared values — and which named values matched none of
+       * them. The same list the data model's `__renderyes` envelope carries
+       * for `@renderyes/react`; change one with a `setInput` refinement.
+       */
+      understood?: UnderstoodInput[];
       /**
        * Set when the view rendered but some of it is missing: at least one
        * bound slot delivered and at least one resolved to `error`.
@@ -2005,6 +2026,8 @@ export function createViewServer<Session>(
        * catalog has no business being refined against another.
        */
       uiCatalogId: string;
+      /** Held for a missing-input question; see `rememberPlan`. */
+      pending?: true;
     }
   >();
   const MAX_RECENT_PLANS = 200;
@@ -2026,6 +2049,12 @@ export function createViewServer<Session>(
     catalogHash: string;
     ownerKey?: string;
     uiCatalogId: string;
+    /**
+     * A plan held for a missing-input question: complete except for one
+     * required argument, never executed. Only a `setInput` refinement may
+     * use it, and only one that leaves it valid; save and revise refuse it.
+     */
+    pending?: true;
   }) {
     if (recentPlans.size >= MAX_RECENT_PLANS) {
       const oldest = recentPlans.keys().next();
@@ -2066,6 +2095,12 @@ export function createViewServer<Session>(
     if (!remembered || remembered.catalogId !== catalogId || mismatched) {
       throw new Error(
         `No recently composed plan "${planId}" for catalog "${catalogId}" to ${action}.`,
+      );
+    }
+    // After the ownership check, so this names nothing to anyone else.
+    if (remembered.pending && action !== "refine") {
+      throw new Error(
+        `Plan "${planId}" is waiting for the answer to its question, so there is nothing to ${action} yet.`,
       );
     }
     return remembered;
@@ -3558,6 +3593,7 @@ export function createViewServer<Session>(
           question?: string;
           options?: readonly string[];
           candidates?: readonly ClarificationCandidate[];
+          input?: ClarificationInput;
         }
       | undefined;
 
@@ -3729,16 +3765,41 @@ export function createViewServer<Session>(
         // same terminal event because `parseComposeEvent` drops frames whose
         // type it does not know, so a third terminal type would leave every
         // existing client waiting for one that never arrives.
+        // A missing-input question holds its plan here, owner-scoped like
+        // any composed plan, so the answer can be applied in code. Without
+        // an owner resolver there is no one to hold it for: the question and
+        // its options still go out, without the structured `input`.
+        let heldInput: ClarificationInput | undefined;
+        if (
+          planned.kind === "needs-clarification" &&
+          planned.input &&
+          planned.pendingPlan &&
+          config.resolveViewOwner
+        ) {
+          rememberPlan({
+            plan: planned.pendingPlan,
+            catalogId,
+            surfaceId: resolvedSurfaceId as string,
+            prompt,
+            catalogHash: registeredCatalog.plannerManifest.catalogHash,
+            ownerKey: config.resolveViewOwner(session),
+            uiCatalogId: uiCatalogId ?? `${catalogId}:ui`,
+            pending: true,
+          });
+          heldInput = { ...planned.input, planId: planned.pendingPlan.planId };
+        }
         const asked: {
           question?: string;
           options?: readonly string[];
           candidates?: readonly ClarificationCandidate[];
+          input?: ClarificationInput;
         } =
           planned.kind === "needs-clarification"
             ? {
                 question: planned.question,
                 ...(planned.options ? { options: planned.options } : {}),
                 ...(planned.candidates ? { candidates: planned.candidates } : {}),
+                ...(heldInput ? { input: heldInput } : {}),
               }
             : {};
         if (!planned.fallbackPlan) {
@@ -3750,6 +3811,7 @@ export function createViewServer<Session>(
             ...(asked.question ? { question: asked.question } : {}),
             ...(asked.options ? { options: [...asked.options] } : {}),
             ...(asked.candidates ? { candidates: [...asked.candidates] } : {}),
+            ...(asked.input ? { input: asked.input } : {}),
           });
           return {
             ok: false,
@@ -3801,6 +3863,9 @@ export function createViewServer<Session>(
     });
 
     const a2uiCatalogIdForRun = uiCatalogId ?? `${catalogId}:ui`;
+    // Derived once from the validated plan and the catalog, never from the
+    // prompt: what the visitor is shown is exactly what the executor runs.
+    const understood = describeUnderstoodInputs(registeredCatalog.plannerManifest, plan);
     const compileWith = (
       executed: Parameters<typeof compilePlanDataSurfaceMessages>[1]["executedData"],
       pending: boolean,
@@ -3813,6 +3878,7 @@ export function createViewServer<Session>(
         baseDataModel: {},
         surfaceId: resolvedSurfaceId as string,
         a2uiCatalogId: a2uiCatalogIdForRun,
+        understood,
         ...(pending ? { treatMissingAsPending: true } : {}),
       });
     const dataModelOf = (messages: CompiledSiteSurface[]): Record<string, unknown> =>
@@ -3932,6 +3998,7 @@ export function createViewServer<Session>(
       // the client's Catalog and the server's createSurface message name
       // different catalogs and A2UI silently fails to bind them.
       a2uiCatalogId: uiCatalogId ?? `${catalogId}:ui`,
+      understood,
     });
 
     // `cached` reports only whether the *plan* was reused — the data in these
@@ -3983,6 +4050,7 @@ export function createViewServer<Session>(
         ...(fellBackFrom.question ? { question: fellBackFrom.question } : {}),
         ...(fellBackFrom.options ? { options: [...fellBackFrom.options] } : {}),
         ...(fellBackFrom.candidates ? { candidates: [...fellBackFrom.candidates] } : {}),
+        ...(fellBackFrom.input ? { input: fellBackFrom.input } : {}),
       });
       return {
         ok: false,
@@ -3992,6 +4060,7 @@ export function createViewServer<Session>(
         ...(fellBackFrom.question ? { question: fellBackFrom.question } : {}),
         ...(fellBackFrom.options ? { options: fellBackFrom.options } : {}),
         ...(fellBackFrom.candidates ? { candidates: fellBackFrom.candidates } : {}),
+        ...(fellBackFrom.input ? { input: fellBackFrom.input } : {}),
         fellBack: true,
         planId: plan.planId,
         requests: summarizeRequests(plan, executedData),
@@ -4034,6 +4103,7 @@ export function createViewServer<Session>(
       cached,
       planId: plan.planId,
       requests,
+      understood,
       ...(delivery === "partial" ? { partial: true as const } : {}),
       deadlineMs: composeDeadlineMs,
       messages,
@@ -4564,6 +4634,10 @@ export function createViewServer<Session>(
           ),
       );
 
+      const reopenedUnderstood = describeUnderstoodInputs(
+        registeredCatalog.plannerManifest,
+        view.plan,
+      );
       const messages = compilePlanDataSurfaceMessages(registeredSite.site, {
         ...visitorErrorOption,
         plan: view.plan,
@@ -4582,6 +4656,7 @@ export function createViewServer<Session>(
         // check still runs, so a plan whose components no longer fit still
         // fails, on the specific thing that no longer fits.
         allowCatalogDrift: true,
+        understood: reopenedUnderstood,
       });
 
       // `cached` is false because no plan cache was consulted — the plan came
@@ -4593,6 +4668,7 @@ export function createViewServer<Session>(
         deadlineMs: config.composeDeadlineMs ?? DEFAULT_COMPOSE_DEADLINE_MS,
         planId: view.plan.planId,
         requests: summarizeRequests(view.plan, executedData),
+        understood: reopenedUnderstood,
         messages,
         // Replayed successfully, but against something other than what it was
         // built on. Individual data slots degrade on their own (a withdrawn
@@ -4640,10 +4716,26 @@ export function createViewServer<Session>(
       throw catalogUnavailableError(catalogId, "UI");
     }
 
+    // A held plan is a question waiting for its answer. The answer is a
+    // `setInput`; anything else would execute, or rearrange, a plan the
+    // visitor has not finished describing.
+    if (
+      remembered.pending &&
+      !operations.every((operation) => operation?.kind === "setInput")
+    ) {
+      return {
+        ok: false,
+        kind: "invalid",
+        reason: "This view is waiting for the answer to its question; answer it first.",
+        issues: [],
+      };
+    }
+
     const refined = applyRefineOperations(
       remembered.plan,
       operations,
       remembered.surfaceId,
+      registeredCatalog.plannerManifest,
     );
     if (!refined.ok) {
       return { ok: false, kind: "invalid", reason: refined.reason, issues: [] };
@@ -4653,7 +4745,34 @@ export function createViewServer<Session>(
     // a model-produced plan gets. Without this, a hand-built filter could sort
     // or filter on a field the catalog never approved for querying.
     const issues: DataPlanIssue[] = [];
+    // Params of the requests a `setInput` changed (every request, for a held
+    // plan, which is missing one until its answer arrives) are checked
+    // against the capability's complete input schema. Other refinements leave
+    // params alone, and the executor's preflight still checks each request,
+    // so a drifted param on a reopened view keeps failing one slot rather than
+    // the whole refine.
+    const editedRequestIds = new Set(
+      operations.flatMap((operation) =>
+        operation?.kind === "setInput" ? [operation.requestId] : [],
+      ),
+    );
     for (const [index, dataRequest] of (refined.plan.dataRequests ?? []).entries()) {
+      const params =
+        remembered.pending || editedRequestIds.has(dataRequest.requestId)
+          ? validateCapabilityParams(
+              registeredCatalog.catalog,
+              dataRequest.capabilityId,
+              dataRequest.params,
+            )
+          : ({ ok: true } as const);
+      if (!params.ok) {
+        issues.push(
+          ...params.issues.map((issue) => ({
+            path: `dataRequests.${index}.params${issue.path === "/" ? "" : issue.path.replace(/\//g, ".")}`,
+            message: issue.message,
+          })),
+        );
+      }
       const validation = validateDataRequestQuery(
         registeredCatalog.plannerManifest,
         dataRequest as never,
@@ -4701,6 +4820,10 @@ export function createViewServer<Session>(
         ),
     );
 
+    const understood = describeUnderstoodInputs(
+      registeredCatalog.plannerManifest,
+      refined.plan,
+    );
     const messages = compilePlanDataSurfaceMessages(registeredSite.site, {
       ...visitorErrorOption,
       plan: refined.plan,
@@ -4708,6 +4831,7 @@ export function createViewServer<Session>(
       executedData: redactExecutedResults(executedData),
       baseDataModel: {},
       surfaceId: remembered.surfaceId,
+      understood,
       // From the remembered plan, not recomputed. Recomputing the default here
       // meant a host that overrode `uiCatalogId` got a working first compose and
       // an empty surface on every refinement, with no error to follow.
@@ -4765,6 +4889,7 @@ export function createViewServer<Session>(
       cached: false,
       planId: refined.plan.planId,
       requests: summarizeRequests(refined.plan, executedData),
+      understood,
       messages,
       ...(notices.length > 0 ? { notices } : {}),
     };

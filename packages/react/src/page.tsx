@@ -7,9 +7,10 @@ import { PANEL_STYLES } from "./panels.js";
 import { ViewNotices, ViewPrompt, ViewSavedBar, ViewSavedControls } from "./parts.js";
 import { useView } from "./provider.js";
 import { ViewSurface } from "./surface.js";
+import { UNDERSTOOD_STYLES, ViewUnderstood } from "./understood.js";
 
 export const PAGE_STYLES = `
-${SHARED_CHROME_STYLES}${CLARIFICATION_STYLES}
+${SHARED_CHROME_STYLES}${CLARIFICATION_STYLES}${UNDERSTOOD_STYLES}
 .renderyes-scope .renderyes-workspace { display: flex; flex-direction: column; gap: 16px;
   max-width: 1080px; margin: 0 auto; padding: 24px clamp(16px, 4vw, 32px) 56px; }
 .renderyes-scope .renderyes-workspace-exit { align-self: flex-start; border: 0; background: transparent;
@@ -201,6 +202,7 @@ export function ViewPage({
                   {...(onExit ? { onExit } : {})}
                   {...(fullSiteHref ? { fullSiteHref } : {})}
                 />
+                <ViewUnderstood />
                 <ViewResult>
                   <ViewSurface panels />
                 </ViewResult>

@@ -61,6 +61,7 @@ export {
   ViewSuggestions,
 } from "./parts.js";
 export type { ViewNoticesProps, ViewPromptProps } from "./parts.js";
+export { ViewUnderstood } from "./understood.js";
 export { IsolatedView, RenderBoundary } from "./isolated-view.js";
 export {
   useViewCompose,
@@ -80,6 +81,8 @@ export type {
 export type { ComposeStage, ComposeStreamState } from "./compose-stream.js";
 /** One capability offered by a clarification; answered with `chooseCandidate`. */
 export type { ClarificationCandidate } from "@renderyes/core";
+/** A missing-input question's field and held plan; answered with `answerClarification`. */
+export type { ClarificationInput, UnderstoodInput } from "@renderyes/core";
 export type {
   RefineCondition,
   RefineFilterGroup,

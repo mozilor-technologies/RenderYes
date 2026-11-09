@@ -1,6 +1,10 @@
-import type { PlannerManifest } from "@renderyes/capability-catalog";
+import { declaredFieldEnumValues, type PlannerManifest } from "@renderyes/capability-catalog";
 import { isRecord } from "@renderyes/core";
-import { createDataPlanningContract, DEFAULT_MAX_ROWS } from "@renderyes/data-runtime";
+import {
+  createDataPlanningContract,
+  DEFAULT_MAX_ROWS,
+  enumeratedInputs,
+} from "@renderyes/data-runtime";
 import {
   scopeManifestToSurface,
   type ComponentDataAcceptance,
@@ -99,7 +103,17 @@ export function createPlanContract(
   const unrenderableOutputs = scope?.unrenderableOutputs ?? [];
 
   const dataContract = createDataPlanningContract(scopedManifest);
-  const dataRequestsSchema = readDataRequestsSchema(dataContract.jsonSchema);
+  // Where the planner may ask, a required argument with declared values may
+  // be left out: the visitor is then asked for exactly that value (see
+  // `composeDataPlan`). Where it may not ask — an answer is being composed —
+  // the schema stays as the catalog wrote it.
+  const askableArguments =
+    options.allowClarification === false ? new Map<string, string[]>() : askableRequiredArguments(scopedManifest);
+  const hiddenValueFields = fieldsWithHiddenValues(scopedManifest);
+  const dataRequestsSchema = withOptionalArguments(
+    readDataRequestsSchema(dataContract.jsonSchema),
+    askableArguments,
+  );
   const compositionSchema = compositionDraftSchema(scopedManifest);
   const joinSchema = joinDraftSchema(scopedManifest);
   const bindingOptions: NodeBindingOptions = {
@@ -209,7 +223,28 @@ export function createPlanContract(
             // of which metric answers the question decides what gets fetched.
             'Do not ask to confirm something the request already implies, and do not ask about data this catalog does not have — that is "unsupported". Do not ask about an ordering, a row limit, or a date range the request already states and the visitor can adjust on the view afterwards; an unstated choice of which metric or capability answers the question is not that.',
             "Prefer answering. A view someone can refine is better than a question they must answer before seeing anything.",
+            ...(askableArguments.size > 0
+              ? [
+                  // The one question worth asking without the model writing it:
+                  // a required value the visitor never stated. Guessing it shows
+                  // a confident wrong answer (install steps for the wrong
+                  // platform); leaving it out lets code ask with the declared
+                  // values as the choices.
+                  "A required argument with declared values that the visitor's words do not state: leave it out of params rather than guessing it. Code then asks the visitor for exactly that value, offering the declared values, and fetches nothing until they answer. Do not write your own question for it.",
+                ]
+              : []),
           ]),
+      // A value the visitor named that the catalog does not list is shown to
+      // them as "not found" when it stays in the filter. Dropped, it vanishes,
+      // and three answers read as the whole answer to a question about four.
+      // Stated only for the fields where that is true: declared values the
+      // contract does not show (a list field's `items`, or more than it
+      // prints). On any other field a kept value is simply a filter.
+      ...(hiddenValueFields.length > 0
+        ? [
+            `The catalog declares values for ${hiddenValueFields.map((field) => JSON.stringify(field)).join(", ")} that are not listed here. Keep every value the visitor named for those fields in the condition, even one you are not sure is declared: a value that matches nothing is shown to the visitor as not found, while a value you leave out disappears without a trace.`,
+          ]
+        : []),
       "Never invent capabilities, components, props, data slots, identity, permissions, credentials, endpoints, executable code, or data rows.",
       // Measured: a metric capability and a metric-accepting component both
       // reach the contract and both stay unchosen, because a question like
@@ -834,6 +869,96 @@ function joinDraftSchema(
         // alphabet so a joined field can never break the trusted table.
         as: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9]*$", maxLength: 40 },
       },
+    },
+  };
+}
+
+/**
+ * Required arguments, per capability, whose schema declares string values —
+ * the ones the planner may leave out for code to ask about.
+ */
+function askableRequiredArguments(manifest: PlannerManifest): Map<string, string[]> {
+  // The same reader `composeDataPlan` checks a draft with
+  // (`missingRequiredInputs`): an argument the schema lets a model leave out
+  // must be one that check can turn into a question. Two readers that
+  // disagreed on a mixed or oversized enum would let a model omit a value no
+  // question could then ask for.
+  const askable = new Map<string, string[]>();
+  for (const capability of manifest.capabilities) {
+    const schema = capability.inputSchema as Record<string, unknown>;
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    const names = enumeratedInputs(manifest, capability)
+      .filter((input) => {
+        const argument = properties[input.name];
+        return (
+          input.kind === "param" &&
+          input.required &&
+          isRecord(argument) &&
+          argument.default === undefined
+        );
+      })
+      .map((input) => input.name);
+    if (names.length > 0) askable.set(capability.id, names);
+  }
+  return askable;
+}
+
+/**
+ * Plannable filter fields whose declared values the contract does not show a
+ * model: values on a list field's `items`, or more than the contract prints.
+ */
+function fieldsWithHiddenValues(manifest: PlannerManifest): string[] {
+  const fields = new Set<string>();
+  for (const capability of manifest.capabilities) {
+    const plannable = new Set(
+      capability.supports?.sourceFilterFields?.length
+        ? capability.supports.sourceFilterFields
+        : (capability.supports?.filterFields ?? []),
+    );
+    const dataType = manifest.dataTypes.find(
+      (candidate) => candidate.id === capability.output.dataTypeId,
+    );
+    if (!dataType) continue;
+    for (const input of enumeratedInputs(manifest, capability)) {
+      if (input.kind !== "filter" || !plannable.has(input.name)) continue;
+      if (declaredFieldEnumValues(dataType, input.name) === undefined) fields.add(input.name);
+    }
+  }
+  return [...fields].sort();
+}
+
+/** The data-request schema with each askable argument removed from its capability's `required`. */
+function withOptionalArguments(
+  schema: Record<string, unknown>,
+  askable: ReadonlyMap<string, string[]>,
+): Record<string, unknown> {
+  if (askable.size === 0 || !isRecord(schema.items) || !Array.isArray(schema.items.anyOf)) {
+    return schema;
+  }
+  return {
+    ...schema,
+    items: {
+      ...schema.items,
+      anyOf: schema.items.anyOf.map((variant: unknown) => {
+        if (!isRecord(variant) || !isRecord(variant.properties)) return variant;
+        const capabilityId = isRecord(variant.properties.capabilityId)
+          ? variant.properties.capabilityId.const
+          : undefined;
+        const names = typeof capabilityId === "string" ? askable.get(capabilityId) : undefined;
+        const params = variant.properties.params;
+        if (!names || !isRecord(params) || !Array.isArray(params.required)) return variant;
+        const required = params.required.filter(
+          (name: unknown) => typeof name !== "string" || !names.includes(name),
+        );
+        const { required: _required, ...rest } = params;
+        return {
+          ...variant,
+          properties: {
+            ...variant.properties,
+            params: required.length > 0 ? { ...rest, required } : rest,
+          },
+        };
+      }),
     },
   };
 }

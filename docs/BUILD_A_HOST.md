@@ -48,7 +48,7 @@ And for you:
 |---|---|
 | Streaming compose | The surface renders a skeleton the moment the plan validates and fills each slot as its data lands. On by default; `stream: false` for a buffering proxy. |
 | Revision | `previousPlanId` interprets a prompt in the context of the current view. Your UI passes it only from revision controls. |
-| Declarative refinement | `setSort`, `setFilter`, `clearFilter`, `setLimit`, `removeNode`, `reorderNodes`. Re-validated against the approved catalog, so a refinement can never widen what a visitor may see. |
+| Declarative refinement | `setSort`, `setFilter`, `clearFilter`, `setLimit`, `removeNode`, `reorderNodes`, `setInput`. Re-validated against the approved catalog, so a refinement can never widen what a visitor may see. |
 | Clarification questions | `errorKind: "needs-clarification"` plus a `clarification` object. Not an error — render it as a question. |
 | Refusal with suggestions | Your `suggestions` chips are rendered inside a refusal, so a dead end becomes a next step. Nothing in them is model-generated. |
 | Saved views + bookmarkable URLs | `save()`, `listSaved()`, `reopen()`, `deleteSaved()`, `pin()`. The URL is owner-scoped: pasting it to a colleague will not open it for them. |

@@ -836,7 +836,14 @@ refineComposedView({
 ```
 
 Supported: `setSort`, `setFilter`, `clearFilter`, `setLimit`, `removeNode`,
-`reorderNodes`.
+`reorderNodes`, `setInput`.
+
+`setInput { requestId, input: "param" | "filter", name, values }` sets one entry
+of the view's `understood` summary (on the compose result, and in the data
+model's `__renderyes` envelope) to a complete list of its declared values. The
+server refuses any input the catalog declares no values for (identity and
+session keys among them) and any value outside the declared list, then
+validates the request's params against the capability's full input schema.
 
 Sorting a table or moving a card is an ordinary interface action. Routing it
 through the model would add a full composition and could return a different
@@ -928,8 +935,16 @@ configured, is refused — the id is the model-free path. Pass `onExit` or
 link goes; by default it is the page the visitor is on, which under the
 launcher's dialog is the full site already.
 
+A question can instead carry `input` — one required argument the visitor did
+not state, with its declared values as `input.options` and the plan the server
+is holding as `input.planId`. Nothing is fetched until it is answered.
+`answerClarification(value)` with one of the options sends a `setInput`
+refinement of that plan (`POST /api/refine`), so no model is called. The server
+holds the plan only when it has a `resolveViewOwner`; without one the question
+arrives without `input` and is answered as text.
+
 Server-side the same thing is `{ kind: "needs-clarification", question,
-options, candidates }` on the compose result, and `RUN_ERROR` with those
+options, candidates, input }` on the compose result, and `RUN_ERROR` with those
 fields when streaming. Answering by capability is `capabilityId` on the
 compose request (`POST /api/compose` body, or
 `composeAgainstPublishedCatalogs({ capabilityId })`); the server rejects an id

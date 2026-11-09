@@ -54,7 +54,16 @@ without discarding the rest of the view.
 before composing. Call `answerClarification(answer)` with the visitor's answer,
 or, when it carries `candidates` (approved capabilities, from a System One
 planner with no language model), `chooseCandidate(capabilityId)`, which
-composes the same prompt with that capability fixed and no model call.
+composes the same prompt with that capability fixed and no model call. When it
+carries `input` (one required value the visitor did not state), answer with one
+of `input.options`: `answerClarification` applies it to the plan the service is
+holding, with no model call and nothing fetched before it.
+
+`understood` lists what the view on screen was narrowed by (each argument or
+filter field with declared values, the values in effect, and the visitor's
+words that matched none of them as `notFound`). `editInput(entry, values)`
+changes one entry with no model call. `ViewWorkspace` renders both through
+`ViewUnderstood`.
 
 `issues` contains validator paths and schema messages for host logging. Do not
 render it to visitors.

@@ -1,4 +1,6 @@
+import type { PlannerManifest } from "@renderyes/capability-catalog";
 import type { FilterGroup, PlanV3_1, Sort, SurfaceNode } from "@renderyes/core";
+import { applyInputEdit } from "@renderyes/data-runtime";
 
 /**
  * A direct manipulation a visitor can perform on an already-composed view
@@ -21,7 +23,23 @@ export type RefineOperation =
   | { kind: "clearFilter"; requestId: string }
   | { kind: "setLimit"; requestId: string; limit: number }
   | { kind: "removeNode"; nodeId: string }
-  | { kind: "reorderNodes"; nodeIds: string[] };
+  | { kind: "reorderNodes"; nodeIds: string[] }
+  /**
+   * Sets one visitor-facing input of one request — an argument or a filter
+   * field listed in the view's `understood` summary — to a complete set of
+   * declared values. Also how a missing-input question is answered.
+   *
+   * Refused unless the input is one the catalog declares values for on that
+   * capability (never an identity or session key, which the planner manifest
+   * does not hold) and every value is one of them. See `applyInputEdit`.
+   */
+  | {
+      kind: "setInput";
+      requestId: string;
+      input: "param" | "filter";
+      name: string;
+      values: string[];
+    };
 
 export interface RefineFailure {
   ok: false;
@@ -55,6 +73,11 @@ export function applyRefineOperations(
   plan: PlanV3_1,
   operations: readonly RefineOperation[],
   surfaceId: string,
+  /**
+   * The planner-safe manifest `setInput` checks inputs and values against.
+   * Without it a `setInput` is refused: there is nothing to check it against.
+   */
+  plannerManifest?: PlannerManifest,
 ): RefineResult {
   const next: PlanV3_1 = structuredClone(plan);
   const surface = next.surfaces.find((candidate) => candidate.id === surfaceId);
@@ -84,6 +107,26 @@ export function applyRefineOperations(
           query.limit = operation.limit;
         }
         request.query = query;
+        break;
+      }
+
+      case "setInput": {
+        const index = (next.dataRequests ?? []).findIndex(
+          (request) => request.requestId === operation.requestId,
+        );
+        if (index === -1) {
+          return { ok: false, reason: `Unknown requestId "${operation.requestId}".` };
+        }
+        if (!plannerManifest) {
+          return { ok: false, reason: "setInput needs the catalog to check values against." };
+        }
+        const edited = applyInputEdit(plannerManifest, next.dataRequests[index], {
+          input: operation.input,
+          name: operation.name,
+          values: operation.values,
+        });
+        if (!edited.ok) return edited;
+        next.dataRequests[index] = edited.request;
         break;
       }
 

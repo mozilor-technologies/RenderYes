@@ -38,4 +38,17 @@ export type RefineOperation =
   | { kind: "clearFilter"; requestId: string }
   | { kind: "setLimit"; requestId: string; limit: number }
   | { kind: "removeNode"; nodeId: string }
-  | { kind: "reorderNodes"; nodeIds: readonly string[] };
+  | { kind: "reorderNodes"; nodeIds: readonly string[] }
+  /**
+   * Sets one entry of the view's `understood` summary — an argument or a
+   * filter field — to a complete list of the values it declares. The server
+   * refuses any input the catalog does not declare values for (identity and
+   * session keys among them) and any value outside that list.
+   */
+  | {
+      kind: "setInput";
+      requestId: string;
+      input: "param" | "filter";
+      name: string;
+      values: readonly string[];
+    };

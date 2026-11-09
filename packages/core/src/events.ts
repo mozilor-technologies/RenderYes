@@ -29,6 +29,8 @@
  * a dropped connection, not a quiet success.
  */
 
+import { readClarificationInput, type ClarificationInput } from "./understood.js";
+
 export const COMPOSE_EVENT_TYPES = [
   "RUN_STARTED",
   "STEP_STARTED",
@@ -84,6 +86,7 @@ export interface ClarificationCandidate {
   capabilityId: string;
   label: string;
 }
+
 
 export type ComposeEvent =
   | (ComposeEventBase & {
@@ -168,6 +171,13 @@ export type ComposeEvent =
        * strings only.
        */
       candidates?: ClarificationCandidate[];
+      /**
+       * Present when the question asks for one required input the visitor did
+       * not state: its declared values, and the held plan an answer applies
+       * to. Answered by a `setInput` refinement of `input.planId`, with no
+       * model call. `options` carries the same values for a string-only client.
+       */
+      input?: ClarificationInput;
     })
   | (ComposeEventBase & {
       type: "RUN_FINISHED";
@@ -191,6 +201,8 @@ export type ComposeEvent =
       options?: string[];
       /** As on RUN_ERROR, for a fell-back revision that asked a question with capability candidates. */
       candidates?: ClarificationCandidate[];
+      /** As on RUN_ERROR, for a fell-back revision that asked for one missing input. */
+      input?: ClarificationInput;
     });
 
 /**
@@ -243,7 +255,16 @@ export function parseComposeEvent(value: unknown): ComposeEvent | undefined {
     }
   })();
 
-  return ok ? (value as unknown as ComposeEvent) : undefined;
+  if (!ok) return undefined;
+  // A malformed `input` is dropped rather than failing the frame: the question
+  // still reaches the visitor as text, which is degraded but true, and a
+  // client is never handed a plan id or option list it cannot trust the shape of.
+  if ((type === "RUN_ERROR" || type === "RUN_FINISHED") && "input" in value) {
+    const input = readClarificationInput(value.input);
+    const { input: _dropped, ...rest } = value;
+    return (input ? { ...rest, input } : rest) as unknown as ComposeEvent;
+  }
+  return value as unknown as ComposeEvent;
 }
 
 /**

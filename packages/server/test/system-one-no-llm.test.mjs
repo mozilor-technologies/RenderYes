@@ -748,21 +748,26 @@ test("search terms: only filler leaves nothing to search for", () => {
 
 /* -------------------------------------- no draft: ask, with the others */
 
-test("a capability the catalog cannot draft a value for becomes a question with the other capabilities", async () => {
+test("a required argument with declared values the prompt does not name is asked for, with those values", async () => {
   const provider = systemOne(scriptedDecisions(DECISIONS));
-  // The answerers need a tag the prompt does not name.
+  // The answerers need a tag the prompt does not name: the draft leaves it
+  // out, and the planner asks for exactly that argument instead of offering
+  // other capabilities or guessing a tag.
   const asked = await compose(provider, "top answerers");
   assert.equal(asked.ok, false);
   assert.equal(asked.kind, "needs-clarification");
-  const offered = asked.candidates.map((candidate) => candidate.capabilityId);
-  assert.ok(offered.length >= 2 && offered.length <= 4, String(offered));
-  assert.ok(
-    !offered.includes("pulse.answerers.top"),
-    "the undraftable one is not offered",
-  );
-  assert.equal(provider.classified.at(-1).path, "clarify");
-  assert.equal(provider.classified.at(-1).reason, "no-draft");
+  assert.equal(asked.candidates, undefined);
+  assert.equal(asked.input.capabilityId, "pulse.answerers.top");
+  assert.equal(asked.input.name, "tagged");
+  assert.deepEqual(asked.input.options, TAGS);
+  assert.deepEqual(asked.options, TAGS);
+  // The held plan is complete except for the argument, and nothing ran.
+  assert.equal(asked.pendingPlan.dataRequests[0].params.tagged, undefined);
+  assert.equal(provider.classified.at(-1).path, "fast");
+});
 
+test("a capability the catalog cannot draft a value for becomes a question with the other capabilities", async () => {
+  const provider = systemOne(scriptedDecisions(DECISIONS));
   // Nothing to search for either: the same question, without search.
   const vague = await compose(provider, "find something interesting");
   assert.equal(vague.kind, "needs-clarification");

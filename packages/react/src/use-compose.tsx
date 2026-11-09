@@ -9,7 +9,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { ClarificationCandidate } from "@renderyes/core";
+import {
+  readClarificationInput,
+  readUnderstoodInputs,
+  type ClarificationCandidate,
+  type ClarificationInput,
+  type UnderstoodInput,
+} from "@renderyes/core";
 import { useView, type ViewConfig } from "./provider.js";
 import { topLevelPanelIds, withPanelOrder } from "./panels.js";
 import {
@@ -121,6 +127,13 @@ export interface ClarificationState {
   question: string;
   options?: readonly string[];
   candidates?: readonly ClarificationCandidate[];
+  /**
+   * Present when the question asks for one required input the visitor did not
+   * state. `answerClarification` with one of `input.options` then applies the
+   * value to the plan the server is holding — no model call — and the view
+   * appears. Nothing was fetched before the answer.
+   */
+  input?: ClarificationInput;
 }
 
 export interface ComposeSessionState {
@@ -139,6 +152,21 @@ export interface ComposeSessionState {
   requests: readonly ComposedRequestSummary[];
   /** Which request/composition/join feeds each panel's slots. See `requests`. */
   nodeBindings: readonly ComposedNodeBinding[];
+  /**
+   * What the view on screen was narrowed by: each argument or filter field
+   * with declared values, the values in effect, and the values the visitor
+   * named that matched none of them (`notFound`). Derived by the service from
+   * the validated plan and the catalog — never by a model — and read from the
+   * `__renderyes` envelope, so it is current after every path that changes
+   * the view. Empty before a view exists or when nothing was narrowed.
+   */
+  understood: readonly UnderstoodInput[];
+  /**
+   * Sets one `understood` entry to a complete list of its declared values and
+   * re-runs the view, with **no model call**. The service refuses a value
+   * outside `entry.options` and any input that is not visitor-editable.
+   */
+  editInput: (entry: UnderstoodInput, values: readonly string[]) => Promise<void>;
   prompt: string;
   setPrompt: (value: string) => void;
   busy: boolean;
@@ -838,7 +866,7 @@ function useComposeSessionState(): ComposeState {
     kind: ComposeFailureKind,
     reason: unknown,
     detail?: unknown,
-    asked?: { question?: unknown; options?: unknown; candidates?: unknown },
+    asked?: { question?: unknown; options?: unknown; candidates?: unknown; input?: unknown },
   ) {
     setErrorKind(kind);
     setError(visitorMessage(kind, reason));
@@ -872,10 +900,12 @@ function useComposeSessionState(): ComposeState {
               : [];
           })
         : undefined;
+      const input = readClarificationInput(asked?.input);
       setClarification({
         question,
         ...(options && options.length > 0 ? { options } : {}),
         ...(candidates && candidates.length > 0 ? { candidates } : {}),
+        ...(input ? { input } : {}),
       });
     } else {
       setClarification(null);
@@ -1049,7 +1079,19 @@ function useComposeSessionState(): ComposeState {
    * cannot widen it.
    */
   async function refine(operations: readonly RefineOperation[]) {
-    if (!planId || operations.length === 0) return;
+    await refinePlan(planId, operations);
+  }
+
+  /**
+   * `refine` against a named plan. The plan on screen for every visitor
+   * edit; the held plan of a missing-input question for its answer, which
+   * may be the first view there is.
+   */
+  async function refinePlan(
+    targetPlanId: string | null,
+    operations: readonly RefineOperation[],
+  ): Promise<boolean> {
+    if (!targetPlanId || operations.length === 0) return false;
     setBusy(true);
     setError(null);
     setErrorKind(null);
@@ -1070,7 +1112,7 @@ function useComposeSessionState(): ComposeState {
         body: JSON.stringify({
           catalogId: config.catalogId,
           uiCatalogId: config.uiCatalogId,
-          planId,
+          planId: targetPlanId,
           operations,
         }),
         signal: timeoutController.signal,
@@ -1081,11 +1123,11 @@ function useComposeSessionState(): ComposeState {
         // The previous view stays on screen. A rejected sort is a reason to
         // tell someone the sort did not apply, not to take their table away.
         fail(kind, payload?.reason ?? payload?.error, payload?.issues);
-        return;
+        return false;
       }
       if (!Array.isArray(payload.messages)) {
         fail("network", undefined);
-        return;
+        return false;
       }
       // The response carries the server's panel order, which — if a reorder
       // is still waiting to be written — is *older* than the arrangement on
@@ -1106,9 +1148,11 @@ function useComposeSessionState(): ComposeState {
       // latest view rather than repeatedly re-refining the original.
       if (typeof payload.planId === "string") setPlanId(payload.planId);
       applyRequestSummaries(payload.requests);
+      return true;
     } catch (cause) {
       const timedOut = cause instanceof Error && cause.name === "AbortError";
       fail(timedOut ? "timeout" : "network", undefined);
+      return false;
     } finally {
       clearTimeout(timeoutId);
       setBusy(false);
@@ -1324,6 +1368,27 @@ function useComposeSessionState(): ComposeState {
    * again and leave the visitor in a loop.
    */
   async function answerClarification(answer: string): Promise<void> {
+    // A missing-input question is answered in code: the value goes to the
+    // plan the server is holding, as a `setInput` it validates against the
+    // catalog. No prompt is resent and no model is asked. Only one of the
+    // offered values is sent; the server refuses anything else regardless.
+    const held = clarification;
+    if (held?.input) {
+      const input = held.input;
+      if (!input.options.includes(answer)) return;
+      const answered = await refinePlan(input.planId, [
+        {
+          kind: "setInput",
+          requestId: input.requestId,
+          input: "param",
+          name: input.name,
+          values: [answer],
+        },
+      ]);
+      // Kept on a failure, so the visitor can pick again beside the reason.
+      setClarification(answered ? null : held);
+      return;
+    }
     const question = clarification?.question;
     const original = askedAbout.current;
     if (!question || !original || !answer.trim()) return;
@@ -1511,6 +1576,17 @@ function useComposeSessionState(): ComposeState {
   return {
     requests: envelope.requests,
     nodeBindings: envelope.nodeBindings,
+    understood: envelope.understood,
+    editInput: (entry: UnderstoodInput, values: readonly string[]) =>
+      refine([
+        {
+          kind: "setInput",
+          requestId: entry.requestId,
+          input: entry.kind,
+          name: entry.name,
+          values,
+        },
+      ]),
     prompt,
     setPrompt,
     busy,
@@ -1553,13 +1629,16 @@ function useComposeSessionState(): ComposeState {
 function renderYesEnvelope(messages: readonly A2uiMessage[]): {
   requests: ComposedRequestSummary[];
   nodeBindings: ComposedNodeBinding[];
+  understood: UnderstoodInput[];
 } {
   for (const message of messages) {
     const update = (message as { updateDataModel?: { path?: string; value?: unknown } })
       .updateDataModel;
     if (!update || update.path !== "/") continue;
     const envelope = (update.value as { __renderyes?: unknown } | undefined)
-      ?.__renderyes as { requests?: unknown; nodes?: unknown } | undefined;
+      ?.__renderyes as
+      | { requests?: unknown; nodes?: unknown; understood?: unknown }
+      | undefined;
     if (!envelope) continue;
     const requests: ComposedRequestSummary[] = [];
     if (Array.isArray(envelope.requests)) {
@@ -1601,9 +1680,9 @@ function renderYesEnvelope(messages: readonly A2uiMessage[]): {
         }
       }
     }
-    return { requests, nodeBindings };
+    return { requests, nodeBindings, understood: readUnderstoodInputs(envelope.understood) };
   }
-  return { requests: [], nodeBindings: [] };
+  return { requests: [], nodeBindings: [], understood: [] };
 }
 
 const DEFAULT_SAVED_VIEW_PARAM = "iv";

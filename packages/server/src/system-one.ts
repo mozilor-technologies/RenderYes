@@ -922,9 +922,11 @@ export type SystemOneDraftResult =
  *   simplest value its type admits.
  *
  * Returns a reason instead of a draft when the catalog cannot supply a value
- * the draft needs: a required argument without a default, an argument that
- * cannot hold the two values the prompt named, or no component for the
- * output. A missing draft is a deferral, never a guess.
+ * the draft needs: a required argument with neither a default nor declared
+ * values, an argument that cannot hold the two values the prompt named, or no
+ * component for the output. A missing draft is a deferral, never a guess. A
+ * required argument with declared values the prompt does not name is left out
+ * of the draft instead, for `composeDataPlan` to ask about.
  */
 export function buildSystemOneDraft(input: {
   prompt: string;
@@ -1398,6 +1400,11 @@ function fillParams(
         params[name] = argument.default as JsonValue;
         continue;
       }
+      // A required argument whose values the catalog declares, and which the
+      // prompt does not name, is left unset: `composeDataPlan` then asks the
+      // visitor for exactly it, with those values as the choices, and fetches
+      // nothing until they pick. Guessing one would be a confident wrong view.
+      if (enumValues(argument)) continue;
       return { ok: false, reason: `argument-required:${name}` };
     }
   }

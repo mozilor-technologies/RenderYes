@@ -37,6 +37,7 @@ export * from "./compose.js";
 export * from "./join.js";
 export * from "./openapi-adapter.js";
 export * from "./registry.js";
+export * from "./understood.js";
 // The planning contract moved to `@renderyes/capability-catalog` (see the
 // note on `createDataPlanningContract` there); re-exported so this package's
 // public surface is unchanged.

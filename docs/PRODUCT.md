@@ -75,6 +75,34 @@ Calls to action initially enter existing website flows. The visitor can always r
 
 Persist the goal, constraints, component configuration, source identifiers, and schema versions. Resolve them against current data when reopened and make material changes visible.
 
+### Show what was understood, and let the visitor correct it
+
+A visitor who pastes "our customers are in Germany, France, California and Texas" must be able to
+see what the view was built from. The values a request was narrowed by (a capability argument such
+as a platform, or a filter value such as a region) are shown above the view as a short summary the
+visitor can edit. A value the visitor named that the site's catalog does not list is shown as
+"not found", not dropped silently: the visitor learns that the site has nothing for Texas, rather
+than reading three laws as the whole answer.
+
+Editing a value re-runs that one request in ordinary code. It makes no model call, accepts only
+values the catalog declares for that input, and can never change an identity or session
+parameter, because those are not visitor inputs and never appear in the summary.
+
+### Ask only for what is missing
+
+When the request is clear but a required input is not stated ("how do I install it?" with no
+platform), the runtime asks for exactly that input, offering the values the catalog declares, and
+fetches nothing until it is answered. Answering is a pick, applied in code without another model
+call. This is the "one targeted question" of the technology table below, narrowed to the case
+where the answer certainly changes the view.
+
+Decision (November 2026): both features stay inside the product boundary. They are read-only (no
+action, purchase or account change), visitor-directed (the visitor states and corrects their own
+constraints; nothing is inferred about them), and deterministic after planning (the summary is
+derived from the validated plan and the catalog, an edit or an answer is validated against the
+capability's input schema and declared values, and neither calls a model). They move no non-goal.
+See `ARCHITECTURE.md` under "What was understood" for the contract.
+
 ## Friction criteria
 
 ### Owner friction

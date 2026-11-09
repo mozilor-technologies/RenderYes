@@ -1219,3 +1219,77 @@ test("a malformed question is rejected by the schema like any other draft", asyn
   const result = await compose(provider);
   assert.equal(result.kind, "invalid");
 });
+
+/* ------------------------------------------- asking for one missing input */
+
+const withoutDiet = () =>
+  readyDraft({
+    dataRequests: [
+      {
+        requestId: "nearby-non-veg",
+        capabilityId: "restaurants.search",
+        params: { radiusKm: 5 },
+        query: { sort: [{ field: "distanceKm", direction: "asc" }], limit: 10 },
+      },
+    ],
+  });
+
+const searchParamsSchema = (contract) =>
+  contract.jsonSchema.oneOf[0].properties.dataRequests.items.anyOf.find(
+    (variant) => variant.properties.capabilityId.const === "restaurants.search",
+  ).properties.params;
+
+test("the contract lets a model leave out a required argument with declared values, and only that one", () => {
+  const asking = createPlanContract(site, plannerManifest, { surfaceId: "results" });
+  assert.deepEqual(searchParamsSchema(asking).required, ["radiusKm"]);
+  assert.match(asking.systemPrompt, /leave it out of params rather than guessing it/);
+
+  const answering = createPlanContract(site, plannerManifest, {
+    surfaceId: "results",
+    allowClarification: false,
+  });
+  assert.deepEqual(searchParamsSchema(answering).required, ["diet", "radiusKm"]);
+  assert.doesNotMatch(answering.systemPrompt, /leave it out of params/);
+});
+
+test("a draft missing a required argument with declared values becomes a question for exactly it", async () => {
+  const provider = new QueueProvider([withoutDiet()]);
+  const result = await compose(provider, { prompt: "restaurants within 5 km" });
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "needs-clarification");
+  assert.equal(result.question, "Which diet?");
+  assert.deepEqual(result.options, ["veg", "non-veg"]);
+  assert.deepEqual(result.input, {
+    requestId: "nearby-non-veg",
+    capabilityId: "restaurants.search",
+    kind: "param",
+    name: "diet",
+    label: "Diet",
+    options: ["veg", "non-veg"],
+  });
+  // The held plan is the validated draft, still without the value.
+  assert.equal(result.pendingPlan.planId, "plan-food-1");
+  assert.deepEqual(result.pendingPlan.dataRequests[0].params, { radiusKm: 5 });
+  assert.equal(provider.requests.length, 1, "asked without a repair round");
+});
+
+test("when answering, a missing argument is repaired by the model, never asked again", async () => {
+  const provider = new QueueProvider([withoutDiet(), readyDraft()]);
+  const result = await compose(provider, { allowClarification: false });
+  assert.equal(result.ok, true);
+  assert.equal(provider.requests.length, 2);
+});
+
+test("a missing argument without declared values is still a validation failure, not a question", async () => {
+  const provider = new QueueProvider([
+    readyDraft({
+      dataRequests: [
+        { requestId: "nearby-non-veg", capabilityId: "restaurants.search", params: { diet: "veg" } },
+      ],
+    }),
+    readyDraft(),
+  ]);
+  const result = await compose(provider);
+  assert.equal(result.ok, true);
+  assert.equal(provider.requests.length, 2, "repaired, not asked");
+});

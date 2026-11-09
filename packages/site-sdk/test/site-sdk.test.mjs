@@ -1801,3 +1801,38 @@ test("validatePlanDataBindings refuses a component the site never published", ()
   assert.equal(issue.path, "surfaces.0.nodes.0.componentId");
   assert.match(issue.message, /StarterDataTable/);
 });
+
+test("the envelope carries what the plan was built from, as given, and an empty list by default", () => {
+  const understood = [
+    {
+      requestId: "tickets",
+      capabilityId: "tickets.list",
+      kind: "filter",
+      name: "status",
+      label: "Status",
+      multiple: true,
+      required: false,
+      values: ["open"],
+      notFound: ["urgent"],
+      options: ["open", "closed"],
+      editable: true,
+    },
+  ];
+  const withSummary = projectPlanDataModel(supportSite, {
+    plan: dataBindingPlan(),
+    plannerManifest: supportPlannerManifest,
+    executedData: successfulExecutedTickets(),
+    baseDataModel: baseTicketDataModel(),
+    understood,
+  });
+  assert.deepEqual(withSummary.__renderyes.understood, understood);
+  assert.notEqual(withSummary.__renderyes.understood[0], understood[0], "copied, not shared");
+
+  const without = projectPlanDataModel(supportSite, {
+    plan: dataBindingPlan(),
+    plannerManifest: supportPlannerManifest,
+    executedData: successfulExecutedTickets(),
+    baseDataModel: baseTicketDataModel(),
+  });
+  assert.deepEqual(without.__renderyes.understood, []);
+});

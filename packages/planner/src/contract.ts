@@ -99,7 +99,16 @@ export function createPlanContract(
   const unrenderableOutputs = scope?.unrenderableOutputs ?? [];
 
   const dataContract = createDataPlanningContract(scopedManifest);
-  const dataRequestsSchema = readDataRequestsSchema(dataContract.jsonSchema);
+  // Where the planner may ask, a required argument with declared values may
+  // be left out: the visitor is then asked for exactly that value (see
+  // `composeDataPlan`). Where it may not ask — an answer is being composed —
+  // the schema stays as the catalog wrote it.
+  const askableArguments =
+    options.allowClarification === false ? new Map<string, string[]>() : askableRequiredArguments(scopedManifest);
+  const dataRequestsSchema = withOptionalArguments(
+    readDataRequestsSchema(dataContract.jsonSchema),
+    askableArguments,
+  );
   const compositionSchema = compositionDraftSchema(scopedManifest);
   const joinSchema = joinDraftSchema(scopedManifest);
   const bindingOptions: NodeBindingOptions = {
@@ -209,7 +218,21 @@ export function createPlanContract(
             // of which metric answers the question decides what gets fetched.
             'Do not ask to confirm something the request already implies, and do not ask about data this catalog does not have — that is "unsupported". Do not ask about an ordering, a row limit, or a date range the request already states and the visitor can adjust on the view afterwards; an unstated choice of which metric or capability answers the question is not that.',
             "Prefer answering. A view someone can refine is better than a question they must answer before seeing anything.",
+            ...(askableArguments.size > 0
+              ? [
+                  // The one question worth asking without the model writing it:
+                  // a required value the visitor never stated. Guessing it shows
+                  // a confident wrong answer (install steps for the wrong
+                  // platform); leaving it out lets code ask with the declared
+                  // values as the choices.
+                  "A required argument with declared values that the visitor's words do not state: leave it out of params rather than guessing it. Code then asks the visitor for exactly that value, offering the declared values, and fetches nothing until they answer. Do not write your own question for it.",
+                ]
+              : []),
           ]),
+      // A value the visitor named that the catalog does not list is shown to
+      // them as "not found" when it stays in the filter. Dropped, it vanishes,
+      // and three answers read as the whole answer to a question about four.
+      "On a filter field that shows no allowedValues, keep every value the visitor named in the condition it belongs to, even one you are not sure the data holds: a value that matches nothing is shown to the visitor as not found, while a value you leave out disappears without a trace.",
       "Never invent capabilities, components, props, data slots, identity, permissions, credentials, endpoints, executable code, or data rows.",
       // Measured: a metric capability and a metric-accepting component both
       // reach the contract and both stay unchosen, because a question like
@@ -834,6 +857,68 @@ function joinDraftSchema(
         // alphabet so a joined field can never break the trusted table.
         as: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9]*$", maxLength: 40 },
       },
+    },
+  };
+}
+
+/**
+ * Required arguments, per capability, whose schema declares string values —
+ * the ones the planner may leave out for code to ask about.
+ */
+function askableRequiredArguments(manifest: PlannerManifest): Map<string, string[]> {
+  const askable = new Map<string, string[]>();
+  for (const capability of manifest.capabilities) {
+    const schema = capability.inputSchema as Record<string, unknown>;
+    const required = Array.isArray(schema.required) ? schema.required : [];
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    const names = required.filter((name): name is string => {
+      if (typeof name !== "string") return false;
+      const argument = properties[name];
+      if (!isRecord(argument) || argument.default !== undefined) return false;
+      const source =
+        argument.type === "array" && isRecord(argument.items) ? argument.items : argument;
+      return (
+        Array.isArray(source.enum) &&
+        source.enum.some((value) => typeof value === "string")
+      );
+    });
+    if (names.length > 0) askable.set(capability.id, names);
+  }
+  return askable;
+}
+
+/** The data-request schema with each askable argument removed from its capability's `required`. */
+function withOptionalArguments(
+  schema: Record<string, unknown>,
+  askable: ReadonlyMap<string, string[]>,
+): Record<string, unknown> {
+  if (askable.size === 0 || !isRecord(schema.items) || !Array.isArray(schema.items.anyOf)) {
+    return schema;
+  }
+  return {
+    ...schema,
+    items: {
+      ...schema.items,
+      anyOf: schema.items.anyOf.map((variant: unknown) => {
+        if (!isRecord(variant) || !isRecord(variant.properties)) return variant;
+        const capabilityId = isRecord(variant.properties.capabilityId)
+          ? variant.properties.capabilityId.const
+          : undefined;
+        const names = typeof capabilityId === "string" ? askable.get(capabilityId) : undefined;
+        const params = variant.properties.params;
+        if (!names || !isRecord(params) || !Array.isArray(params.required)) return variant;
+        const required = params.required.filter(
+          (name: unknown) => typeof name !== "string" || !names.includes(name),
+        );
+        const { required: _required, ...rest } = params;
+        return {
+          ...variant,
+          properties: {
+            ...variant.properties,
+            params: required.length > 0 ? { ...rest, required } : rest,
+          },
+        };
+      }),
     },
   };
 }

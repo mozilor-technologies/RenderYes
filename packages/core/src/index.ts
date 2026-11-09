@@ -4,4 +4,5 @@ export * from "./migrate-v1.js";
 export * from "./plan.js";
 export * from "./planner.js";
 export * from "./registry.js";
+export * from "./understood.js";
 export * from "./validate.js";

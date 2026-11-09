@@ -4,6 +4,7 @@ import type { PlannerManifest } from "@renderyes/capability-catalog";
 import {
   isRecord,
   type ClarificationCandidate,
+  type ClarificationInput,
   type DataComposition,
   type DataJoin,
   type DataRequest,
@@ -12,7 +13,11 @@ import {
   type PlanProvider,
   type PlanProviderRequest,
 } from "@renderyes/core";
-import { validateDataRequestQuery } from "@renderyes/data-runtime";
+import {
+  missingRequiredInputs,
+  validateDataRequestQuery,
+  type MissingInput,
+} from "@renderyes/data-runtime";
 import {
   validatePlanDataBindings,
   type DataBindingValidationResult,
@@ -163,6 +168,14 @@ export type ComposeDataPlanResult =
        * caller can resubmit the prompt with `chosenCapabilityId` set to one.
        */
       candidates?: readonly ClarificationCandidate[];
+      /**
+       * Present when the question asks for one required argument the visitor
+       * did not state. `pendingPlan` is the validated plan without it; the
+       * caller holds it, assigns `planId`, and applies the answer in code.
+       * Nothing has been fetched.
+       */
+      input?: Omit<ClarificationInput, "planId">;
+      pendingPlan?: PlanV3_1;
       reason: string;
       issues: DataPlanIssue[];
       fallbackPlan: PlanV3_1 | null;
@@ -393,10 +406,27 @@ export async function composeDataPlan(
       // run that whole pass a second time to get the validated plan back.
       const { issues, bindings } = validateCandidate(input, candidate);
       if (issues.length === 0 && bindings.ok && bindings.plan.schemaVersion === "3.1") {
-        return { ok: true, plan: bindings.plan };
+        const missing =
+          input.allowClarification === false
+            ? undefined
+            : missingInputs(input, bindings.plan);
+        if (missing === undefined || missing.length === 0) {
+          return { ok: true, plan: bindings.plan };
+        }
+        if (missing.length === 1) {
+          return askForInput(input, bindings.plan, missing[0]);
+        }
+        // Two unstated values cannot be one question; the model is asked to
+        // supply them, exactly as before an argument could be left out.
+        lastFailureKind = "invalid";
+        lastIssues = missing.map((entry) => ({
+          path: `dataRequests.${entry.requestId}.params.${entry.name}`,
+          message: `Required argument ${entry.name} of ${entry.capabilityId} is missing`,
+        }));
+      } else {
+        lastFailureKind = "invalid";
+        lastIssues = issues;
       }
-      lastFailureKind = "invalid";
-      lastIssues = issues;
     } else {
       lastFailureKind = "invalid";
       lastIssues = [
@@ -425,6 +455,63 @@ export async function composeDataPlan(
     kind: lastFailureKind,
     reason: summarizeIssues(lastIssues),
     issues: lastIssues,
+    fallbackPlan: input.previousPlan ?? null,
+  };
+}
+
+/**
+ * Required arguments with declared values that the plan leaves unset: the
+ * contract lets a model leave one out rather than guess it, and the System One
+ * draft leaves one out when the prompt names none of its values.
+ *
+ * A value a model did supply is kept even when the prompt never named it. A
+ * check that it appears in the visitor's words turned ordinary inferences
+ * ("near me" read as a radius, "a vegetarian place" as `veg`) into questions
+ * for every existing host, which is a wider change than asking for what is
+ * missing.
+ */
+function missingInputs(input: ComposeDataPlanInput, plan: PlanV3_1): MissingInput[] {
+  return plan.dataRequests.flatMap(
+    (request) => missingRequiredInputs(input.plannerManifest, request).declared,
+  );
+}
+
+/** The fixed question for one missing argument, and the plan held until it is answered. */
+function askForInput(
+  input: ComposeDataPlanInput,
+  plan: PlanV3_1,
+  missing: MissingInput,
+): ComposeDataPlanResult {
+  const pendingPlan: PlanV3_1 = {
+    ...plan,
+    dataRequests: plan.dataRequests.map((request) =>
+      request.requestId === missing.requestId
+        ? {
+            ...request,
+            params: Object.fromEntries(
+              Object.entries(request.params).filter(([key]) => key !== missing.name),
+            ),
+          }
+        : request,
+    ),
+  };
+  const question = `Which ${missing.label.charAt(0).toLowerCase()}${missing.label.slice(1)}?`;
+  return {
+    ok: false,
+    kind: "needs-clarification",
+    question,
+    options: missing.options,
+    input: {
+      requestId: missing.requestId,
+      capabilityId: missing.capabilityId,
+      kind: "param",
+      name: missing.name,
+      label: missing.label,
+      options: missing.options,
+    },
+    pendingPlan,
+    reason: question,
+    issues: [],
     fallbackPlan: input.previousPlan ?? null,
   };
 }

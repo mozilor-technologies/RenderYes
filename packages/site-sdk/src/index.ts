@@ -8,6 +8,7 @@ import {
   type JsonValue,
   type Catalog,
   type SurfaceNode,
+  type UnderstoodInput,
   type Plan,
   type PlanV3_1,
   type PropsContract,
@@ -1392,6 +1393,17 @@ export interface ProjectPlanDataModelInput {
   /** See `PlanDataBindingOptions.allowCatalogDrift`. Only a saved-view replay sets this. */
   allowCatalogDrift?: boolean;
   /**
+   * What the plan was narrowed by, for the visitor to see and correct: the
+   * output of `describeUnderstoodInputs` (`@renderyes/data-runtime`) for this
+   * plan. Copied into the `__renderyes` envelope as `understood`.
+   *
+   * Passed in rather than derived here because the derivation reads the
+   * catalog's runtime helpers, and this package keeps those (and the Zod
+   * major behind them) out of the browser bundle. Omitted, the envelope
+   * carries an empty list.
+   */
+  understood?: readonly UnderstoodInput[];
+  /**
    * Projects a result that has not arrived yet as `pending` instead of
    * throwing. Off by default, because for a completed compose a missing
    * result is a bug and silence would hide it.
@@ -1576,6 +1588,9 @@ export function projectPlanDataModel(
     compositions: compositionEnvelopes,
     joins: joinEnvelopes,
     nodes: nodeEnvelopes,
+    understood: (input.understood ?? []).map(
+      (entry) => cloneJsonValue(entry as unknown as JsonValue),
+    ),
   };
 
   for (const [surfaceIndex, surface] of input.plan.surfaces.entries()) {

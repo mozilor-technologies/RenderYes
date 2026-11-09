@@ -150,6 +150,39 @@ Before accepting a feature, ask:
 
 If the answer is neither, the work is likely infrastructure or AI spectacle with no demonstrated product value.
 
+## Decisions
+
+### Pasted text, prompt length, and values read from a prompt (2026-11-09)
+
+Visitors do not always type a goal. They paste one: a developer's note, a
+forwarded email, a support ticket. That text names things the site can use, such
+as the visitor's own website address, and things the visitor did not write,
+including text written to steer a model.
+
+**Pasted text is untrusted input.** It is the visitor's prompt like any other.
+It passes the same guards, it is planned as a goal, and nothing in it is read as
+an instruction to the runtime. Quoting a note does not lend it authority, and a
+longer prompt gets no exemption from any check a short one passes.
+
+**A longer limit is the site's choice.** The default ceiling stays at 2,000
+characters, enforced before any provider is called. A publisher whose visitors
+paste longer text can raise it per server (`maxPromptLength`). Every character
+is sent to the language model on every planning attempt, so a higher limit is a
+higher worst-case bill per compose. That is the publisher's cost, so it is the
+publisher's decision, made in configuration and never by the visitor.
+
+**Identifiers are extracted by code, never by the model.** A value the site may
+act on, such as a website address carried into a sign-up handover, is read out
+of the prompt by deterministic code and validated before anyone sees it. The
+model never proposes it, and no model output is ever read as one. The value is
+kept narrow: the address's origin only (scheme and host), never a path, query,
+credentials, an email address, an IP literal or `localhost`. When a prompt names
+more than one site, the code keeps none rather than guess. Extraction is off
+until a publisher enables it. The value is re-derived from the prompt rather
+than stored, and the runtime never puts it in a URL. A host that carries it in a
+handover link carries it on its own, never in a query string beside anything
+personal.
+
 ## Explicit non-goals
 
 - Arbitrary generated JS/HTML/CSS/React at runtime.

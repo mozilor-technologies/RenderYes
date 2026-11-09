@@ -1,6 +1,10 @@
-import type { PlannerManifest } from "@renderyes/capability-catalog";
+import { declaredFieldEnumValues, type PlannerManifest } from "@renderyes/capability-catalog";
 import { isRecord } from "@renderyes/core";
-import { createDataPlanningContract, DEFAULT_MAX_ROWS } from "@renderyes/data-runtime";
+import {
+  createDataPlanningContract,
+  DEFAULT_MAX_ROWS,
+  enumeratedInputs,
+} from "@renderyes/data-runtime";
 import {
   scopeManifestToSurface,
   type ComponentDataAcceptance,
@@ -105,6 +109,7 @@ export function createPlanContract(
   // the schema stays as the catalog wrote it.
   const askableArguments =
     options.allowClarification === false ? new Map<string, string[]>() : askableRequiredArguments(scopedManifest);
+  const hiddenValueFields = fieldsWithHiddenValues(scopedManifest);
   const dataRequestsSchema = withOptionalArguments(
     readDataRequestsSchema(dataContract.jsonSchema),
     askableArguments,
@@ -232,7 +237,14 @@ export function createPlanContract(
       // A value the visitor named that the catalog does not list is shown to
       // them as "not found" when it stays in the filter. Dropped, it vanishes,
       // and three answers read as the whole answer to a question about four.
-      "On a filter field that shows no allowedValues, keep every value the visitor named in the condition it belongs to, even one you are not sure the data holds: a value that matches nothing is shown to the visitor as not found, while a value you leave out disappears without a trace.",
+      // Stated only for the fields where that is true: declared values the
+      // contract does not show (a list field's `items`, or more than it
+      // prints). On any other field a kept value is simply a filter.
+      ...(hiddenValueFields.length > 0
+        ? [
+            `The catalog declares values for ${hiddenValueFields.map((field) => JSON.stringify(field)).join(", ")} that are not listed here. Keep every value the visitor named for those fields in the condition, even one you are not sure is declared: a value that matches nothing is shown to the visitor as not found, while a value you leave out disappears without a trace.`,
+          ]
+        : []),
       "Never invent capabilities, components, props, data slots, identity, permissions, credentials, endpoints, executable code, or data rows.",
       // Measured: a metric capability and a metric-accepting component both
       // reach the contract and both stay unchosen, because a question like
@@ -866,25 +878,53 @@ function joinDraftSchema(
  * the ones the planner may leave out for code to ask about.
  */
 function askableRequiredArguments(manifest: PlannerManifest): Map<string, string[]> {
+  // The same reader `composeDataPlan` checks a draft with
+  // (`missingRequiredInputs`): an argument the schema lets a model leave out
+  // must be one that check can turn into a question. Two readers that
+  // disagreed on a mixed or oversized enum would let a model omit a value no
+  // question could then ask for.
   const askable = new Map<string, string[]>();
   for (const capability of manifest.capabilities) {
     const schema = capability.inputSchema as Record<string, unknown>;
-    const required = Array.isArray(schema.required) ? schema.required : [];
     const properties = isRecord(schema.properties) ? schema.properties : {};
-    const names = required.filter((name): name is string => {
-      if (typeof name !== "string") return false;
-      const argument = properties[name];
-      if (!isRecord(argument) || argument.default !== undefined) return false;
-      const source =
-        argument.type === "array" && isRecord(argument.items) ? argument.items : argument;
-      return (
-        Array.isArray(source.enum) &&
-        source.enum.some((value) => typeof value === "string")
-      );
-    });
+    const names = enumeratedInputs(manifest, capability)
+      .filter((input) => {
+        const argument = properties[input.name];
+        return (
+          input.kind === "param" &&
+          input.required &&
+          isRecord(argument) &&
+          argument.default === undefined
+        );
+      })
+      .map((input) => input.name);
     if (names.length > 0) askable.set(capability.id, names);
   }
   return askable;
+}
+
+/**
+ * Plannable filter fields whose declared values the contract does not show a
+ * model: values on a list field's `items`, or more than the contract prints.
+ */
+function fieldsWithHiddenValues(manifest: PlannerManifest): string[] {
+  const fields = new Set<string>();
+  for (const capability of manifest.capabilities) {
+    const plannable = new Set(
+      capability.supports?.sourceFilterFields?.length
+        ? capability.supports.sourceFilterFields
+        : (capability.supports?.filterFields ?? []),
+    );
+    const dataType = manifest.dataTypes.find(
+      (candidate) => candidate.id === capability.output.dataTypeId,
+    );
+    if (!dataType) continue;
+    for (const input of enumeratedInputs(manifest, capability)) {
+      if (input.kind !== "filter" || !plannable.has(input.name)) continue;
+      if (declaredFieldEnumValues(dataType, input.name) === undefined) fields.add(input.name);
+    }
+  }
+  return [...fields].sort();
 }
 
 /** The data-request schema with each askable argument removed from its capability's `required`. */

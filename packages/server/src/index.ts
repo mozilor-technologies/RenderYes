@@ -4745,16 +4745,26 @@ export function createViewServer<Session>(
     // a model-produced plan gets. Without this, a hand-built filter could sort
     // or filter on a field the catalog never approved for querying.
     const issues: DataPlanIssue[] = [];
+    // Params of the requests a `setInput` changed (every request, for a held
+    // plan, which is missing one until its answer arrives) are checked
+    // against the capability's complete input schema. Other refinements leave
+    // params alone, and the executor's preflight still checks each request,
+    // so a drifted param on a reopened view keeps failing one slot rather than
+    // the whole refine.
+    const editedRequestIds = new Set(
+      operations.flatMap((operation) =>
+        operation?.kind === "setInput" ? [operation.requestId] : [],
+      ),
+    );
     for (const [index, dataRequest] of (refined.plan.dataRequests ?? []).entries()) {
-      // Params too, against the capability's complete input schema: a
-      // `setInput` changes them, and a held plan is missing one until its
-      // answer arrives. Before this, refinement never touched params, so the
-      // planner's validation was the only check they needed.
-      const params = validateCapabilityParams(
-        registeredCatalog.catalog,
-        dataRequest.capabilityId,
-        dataRequest.params,
-      );
+      const params =
+        remembered.pending || editedRequestIds.has(dataRequest.requestId)
+          ? validateCapabilityParams(
+              registeredCatalog.catalog,
+              dataRequest.capabilityId,
+              dataRequest.params,
+            )
+          : ({ ok: true } as const);
       if (!params.ok) {
         issues.push(
           ...params.issues.map((issue) => ({

@@ -1293,3 +1293,36 @@ test("a missing argument without declared values is still a validation failure, 
   assert.equal(result.ok, true);
   assert.equal(provider.requests.length, 2, "repaired, not asked");
 });
+
+test("an enum the missing-input check cannot ask about stays required, and a draft omitting it is repaired", async () => {
+  const mixed = structuredClone(plannerManifest);
+  mixed.capabilities[0].inputSchema.properties.diet = { enum: ["veg", 1] };
+  const contract = createPlanContract(site, mixed, { surfaceId: "results" });
+  assert.deepEqual(searchParamsSchema(contract).required, ["diet", "radiusKm"]);
+
+  // A provider that ignores the schema anyway is repaired, never executed with a hole.
+  const provider = new QueueProvider([withoutDiet(), readyDraft({
+    dataRequests: [{ requestId: "nearby-non-veg", capabilityId: "restaurants.search", params: { diet: "veg", radiusKm: 5 } }],
+  })]);
+  const result = await compose(provider, { plannerManifest: mixed });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(provider.requests.length, 2);
+});
+
+test("the keep-every-value rule is stated only for fields whose declared values the contract hides", () => {
+  const plain = createPlanContract(site, plannerManifest, { surfaceId: "results" });
+  assert.doesNotMatch(plain.systemPrompt, /Keep every value the visitor named/);
+
+  const listed = structuredClone(plannerManifest);
+  listed.dataTypes[0].schema.properties.cuisines = {
+    type: "array",
+    items: { type: "string", enum: ["thai", "indian"] },
+  };
+  listed.dataTypes[0].fields.cuisines = { label: "Cuisines", semanticType: "text" };
+  listed.capabilities[0].supports.filterFields.push("cuisines");
+  const hidden = createPlanContract(site, listed, { surfaceId: "results" });
+  assert.match(
+    hidden.systemPrompt,
+    /The catalog declares values for "cuisines" that are not listed here\. Keep every value/,
+  );
+});

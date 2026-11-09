@@ -546,8 +546,9 @@ through `ViewUnderstood`. The declared lists here are read uncapped up to 200 va
 contract still shows a model at most 32, because it pays tokens for each one.
 
 "Not found" is detected, not reported by the model. A planner that keeps "Texas" in a `regions`
-filter (the contract asks it to keep every value it was given for a field that shows no
-allowedValues) produces a condition that matches nothing; the summary names it. A value the model
+filter produces a condition that matches nothing; the summary names it. Where the catalog declares
+values the contract does not show (a list field's `items`, or more than 32), the contract names
+those fields and asks the model to keep every value the visitor gave for them. A value the model
 drops entirely is not recoverable here. That is the remaining trust assumption on the language-model
 path; System One cannot name a value outside the catalog at all.
 
@@ -561,17 +562,20 @@ for that capability (so never a session or identity key, which the planner manif
 and never an argument or field without declared values) and every value is declared, in the
 catalog's own spelling. A filter is rewritten in the operator the plan used; values that were not
 found stay in the condition (they still match nothing, and stay visible); clearing every declared
-value removes the condition. `refineComposedView` now validates every request's params against the
-capability's complete input schema (`validateCapabilityParams`) as well as its query, then
-executes. No model call.
+value removes the condition. `refineComposedView` now validates the params of every request a `setInput` changed (every request,
+for a held plan) against the capability's complete input schema (`validateCapabilityParams`), as
+well as every query, then executes. No model call. Like every refinement it re-executes the whole
+view, not only the edited request.
 
 **Asking for one missing input.** When clarification is allowed, the planner contract drops from
-`required` each required argument that has declared values and no default, and tells the model to
+`required` each required argument that has declared values and no default (read by the same
+`enumeratedInputs` the missing-input check uses, so nothing it lets a model omit is unaskable), and tells the model to
 leave it out rather than guess. System One's draft leaves such an argument out when the prompt
 names none of its values. `composeDataPlan` then checks the validated draft: exactly one missing
-argument of that kind becomes `needs-clarification` with a fixed question (`Which <label>?`), the
+argument of that kind, and nothing else missing, becomes `needs-clarification` with a fixed question (`Which <label>?`), the
 declared values as `options`, and `input: {requestId, capabilityId, kind: "param", name, label,
-options}` plus the held `pendingPlan`. Two or more missing go to repair as before. When answering a
+options}` plus the held `pendingPlan`. Two or more missing, or one with no declared values, go to repair as before; a plan with a
+missing required value is never executed. When answering a
 question (`allowClarification: false`) the schema keeps `required`, so a missing value is repaired,
 never asked twice.
 

@@ -406,23 +406,32 @@ export async function composeDataPlan(
       // run that whole pass a second time to get the validated plan back.
       const { issues, bindings } = validateCandidate(input, candidate);
       if (issues.length === 0 && bindings.ok && bindings.plan.schemaVersion === "3.1") {
-        const missing =
-          input.allowClarification === false
-            ? undefined
-            : missingInputs(input, bindings.plan);
-        if (missing === undefined || missing.length === 0) {
+        const missing = missingInputs(input, bindings.plan);
+        const askable =
+          input.allowClarification !== false &&
+          missing.undeclared.length === 0 &&
+          missing.declared.length === 1;
+        if (missing.declared.length === 0 && missing.undeclared.length === 0) {
           return { ok: true, plan: bindings.plan };
         }
-        if (missing.length === 1) {
-          return askForInput(input, bindings.plan, missing[0]);
+        if (askable) {
+          return askForInput(input, bindings.plan, missing.declared[0]);
         }
-        // Two unstated values cannot be one question; the model is asked to
-        // supply them, exactly as before an argument could be left out.
+        // Anything else is not one question: two unstated values, a missing
+        // argument with no declared values, or any missing value while an
+        // answer is being composed. The model is asked to supply them, exactly
+        // as before an argument could be left out — never executed with a hole.
         lastFailureKind = "invalid";
-        lastIssues = missing.map((entry) => ({
-          path: `dataRequests.${entry.requestId}.params.${entry.name}`,
-          message: `Required argument ${entry.name} of ${entry.capabilityId} is missing`,
-        }));
+        lastIssues = [
+          ...missing.declared.map((entry) => ({
+            path: `dataRequests.${entry.requestId}.params.${entry.name}`,
+            message: `Required argument ${entry.name} of ${entry.capabilityId} is missing`,
+          })),
+          ...missing.undeclared.map((path) => ({
+            path: `dataRequests.${path.replace(".", ".params.")}`,
+            message: `Required argument ${path.split(".").slice(1).join(".")} is missing`,
+          })),
+        ];
       } else {
         lastFailureKind = "invalid";
         lastIssues = issues;
@@ -470,10 +479,18 @@ export async function composeDataPlan(
  * for every existing host, which is a wider change than asking for what is
  * missing.
  */
-function missingInputs(input: ComposeDataPlanInput, plan: PlanV3_1): MissingInput[] {
-  return plan.dataRequests.flatMap(
-    (request) => missingRequiredInputs(input.plannerManifest, request).declared,
-  );
+function missingInputs(
+  input: ComposeDataPlanInput,
+  plan: PlanV3_1,
+): { declared: MissingInput[]; undeclared: string[] } {
+  const declared: MissingInput[] = [];
+  const undeclared: string[] = [];
+  for (const request of plan.dataRequests) {
+    const missing = missingRequiredInputs(input.plannerManifest, request);
+    declared.push(...missing.declared);
+    undeclared.push(...missing.undeclared.map((name) => `${request.requestId}.${name}`));
+  }
+  return { declared, undeclared };
 }
 
 /** The fixed question for one missing argument, and the plan held until it is answered. */

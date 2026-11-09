@@ -53,10 +53,12 @@ export interface ComposeStreamState {
   /** True once a terminal event arrived. A stream that closes without one did not finish. */
   finished: boolean;
   /**
-   * Values the server read out of the prompt by deterministic code, from
-   * RUN_FINISHED, each re-checked here. Empty when the server sent none.
+   * Values the server read out of the prompt by deterministic code, each
+   * re-checked here. Set only by a clean RUN_FINISHED — the streamed twin of a
+   * batch `ok: true` — and absent after a fallback, a `data-unavailable` finish
+   * or an error, exactly as the batch path leaves them alone then.
    */
-  extracted: ExtractedValues;
+  extracted?: ExtractedValues;
 }
 
 export const initialComposeStreamState: ComposeStreamState = {
@@ -68,7 +70,6 @@ export const initialComposeStreamState: ComposeStreamState = {
   failure: null,
   fellBack: false,
   finished: false,
-  extracted: {},
 };
 
 const dataModelIndex = (messages: readonly unknown[]): number =>
@@ -187,7 +188,9 @@ export function applyComposeEvent(
         stage: "done",
         finished: true,
         ...(event.planId ? { planId: event.planId } : {}),
-        extracted: checkedExtracted(event.extracted),
+        ...(event.fellBack !== true && event.kind === undefined
+          ? { extracted: checkedExtracted(event.extracted) }
+          : {}),
         fellBack: event.fellBack === true,
         ...(event.fellBack === true
           ? {

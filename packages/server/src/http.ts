@@ -23,7 +23,11 @@
  * have been picking their framework for them.
  */
 import { encodeComposeEvent, type ComposeEvent } from "@renderyes/core";
-import { ComposeRateLimitedError, PlanProviderNotConfiguredError } from "./index.js";
+import {
+  ComposeRateLimitedError,
+  PlanProviderNotConfiguredError,
+  PromptTooLongError,
+} from "./index.js";
 import type { ViewServer } from "./index.js";
 
 /**
@@ -615,9 +619,11 @@ function composeEventStreamResponse<Session>(
           kind:
             error instanceof UnauthenticatedError
               ? "unauthenticated"
-              : error instanceof HttpError || error instanceof ComposeRateLimitedError
-                ? "rejected"
-                : "failed",
+              : error instanceof PromptTooLongError
+                ? error.kind
+                : error instanceof HttpError || error instanceof ComposeRateLimitedError
+                  ? "rejected"
+                  : "failed",
           reason: message,
         });
       } finally {

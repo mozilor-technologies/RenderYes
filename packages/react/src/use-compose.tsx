@@ -92,7 +92,13 @@ export type ComposeFailureKind =
    * rather than broken. Chrome should stop offering them rather than surface
    * an error — until it does, this at least lets a host tell the two apart.
    */
-  | "visitor-identity-required";
+  | "visitor-identity-required"
+  /**
+   * The prompt is longer than this site accepts (`maxPromptLength` on the
+   * server), refused before anything was planned. Usually a pasted email or
+   * note: the visitor can keep the part they want answered and send again.
+   */
+  | "prompt-too-long";
 
 /**
  * One executed data request, as the service summarised it — ids and state,
@@ -534,6 +540,18 @@ function visitorMessage(kind: ComposeFailureKind, reason: unknown): string {
       ? `${clean.slice(0, MAX_REASON_LENGTH - 1)}…`
       : clean;
   }
+  if (kind === "prompt-too-long") {
+    // It is about their question, unlike every other refusal before planning:
+    // the text is too long, and only the visitor can shorten it. The number is
+    // the server's own, read from its fixed sentence when present.
+    const limit =
+      typeof reason === "string"
+        ? /at most (\d+) characters/.exec(reason)?.[1]
+        : undefined;
+    return `That's more text than this site takes in one request${
+      limit ? ` (${Number(limit).toLocaleString("en")} characters at most)` : ""
+    }. Keep the part you want answered and try again.`;
+  }
   if (kind === "service-error") {
     // Not "try later": a refusal is deterministic and waiting changes nothing.
     // Not "rephrase" either — the request never got far enough for the wording
@@ -575,6 +593,7 @@ const SERVICE_FAILURE_KINDS: readonly string[] = [
   "needs-clarification",
   "data-unavailable",
   "visitor-identity-required",
+  "prompt-too-long",
 ];
 
 /**
@@ -1019,7 +1038,7 @@ function useComposeSessionState(): ComposeState {
           // silently treating this as success would report a partial view as
           // complete.
           fail("network", undefined);
-        } else if (!streamed.fellBack) {
+        } else if (streamed.extracted) {
           applyExtracted(streamed.extracted, Boolean(options.revise && planId));
         }
         return;

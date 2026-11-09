@@ -129,6 +129,28 @@ describe("extracted", () => {
     expect(hook.current().extracted).toEqual({});
   });
 
+  it("tells a visitor whose paste is too long to shorten it, with the site's limit", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 400,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({
+          ok: false,
+          error: "Prompt must be at most 2000 characters",
+          kind: "prompt-too-long",
+        }),
+      })),
+    );
+    const hook = mountHook();
+    await act(() => hook.current().submit({ prompt: "x".repeat(2001) }));
+    expect(hook.current().errorKind).toBe("prompt-too-long");
+    expect(hook.current().error).toBe(
+      "That's more text than this site takes in one request (2,000 characters at most). Keep the part you want answered and try again.",
+    );
+  });
+
   it("re-checks what the server sent and drops what fails", async () => {
     stubResponses(ok("plan-1", { websiteAddress: "javascript:alert(document.cookie)" }));
     const hook = mountHook();

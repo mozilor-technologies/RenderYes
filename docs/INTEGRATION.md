@@ -464,12 +464,19 @@ const renderYes = createViewServer({
 - nothing from a token with an `@` in it, so an email address or a URL with
   credentials yields nothing;
 - no IP literal, `localhost`, `.local` or single-label host;
-- nothing at all when the prompt names two different sites.
+- nothing at all when the prompt names two different sites (one host with and
+  without `www.` counts as one).
+
+Validated is not verified. The address is the visitor's claim, checked for form
+only. It says nothing about who owns the site, so pre-fill a field the visitor
+can see and correct; never act on that site without them confirming.
 
 The value never enters the plan, a component's props, the planner's contract,
 `onComposeMetrics` or `onModelCall`. A model that writes an address into its
 plan does not set it. It is re-read from the prompt on every compose and reopen
-and never stored.
+and never stored. A reopened saved view reads the prompt it was saved with, which
+for a revised view is the revision's ("only the EU laws"), so a site named only
+in the first prompt is not there after a reopen.
 
 In the browser, `useViewCompose().extracted` holds it, re-checked on arrival. A
 component the host registers can read it for its own handover link:
@@ -789,17 +796,23 @@ prompt cost 3,383 input tokens and a 270-character pasted note 3,432: about
 A smaller contract makes the paste a larger share. Pair a raise with
 `allowCompose`, which bounds how many composes a visitor can run at all.
 
-System One reads less than that. The shipped checkpoint has a 512-token input
-window shared by the prompt and the catalog's purpose lines. On the demo, a
-neutral paste with the question at the end was answered on the fast path at 945
-characters, and from about 1,800 characters on the classifier no longer saw the
-question and answered `none` (same confidence at 1,805, 5,245 and 17,285
-characters). That is the safe failure: with a fallback the prompt goes to the
-language model, which reads all of it, and without one it is refused. A
-model-only site that raises the ceiling should expect long pastes to be refused
-unless the ask comes first. Guards read the whole prompt, whatever its length:
-an instruction or action verb anywhere in a paste routes it away from the fast
-path.
+System One reads less than that, at any ceiling. The shipped checkpoint has a
+512-token input window shared by the prompt and the catalog's purpose lines. On
+the CookieYes demo, a neutral paste with the question at the end was answered on
+the fast path at 945 characters. From about 1,800 characters on, the classifier
+no longer saw the question and answered `none`, with the same confidence at
+1,805, 5,245 and 17,285 characters. That is under the 2,000 default, so a
+forwarded email can reach it with no configuration change. It is the safe
+failure: with a fallback the prompt goes to the language model, which reads all
+of it, and without one it is refused. A model-only site whose visitors paste
+should expect long pastes to be refused unless the ask comes first. Guards read
+the whole prompt, whatever its length: an instruction or an action verb anywhere
+in a paste routes it away from the fast path.
+
+A prompt over the ceiling is a `400` with `kind: "prompt-too-long"` (on the
+stream, a `RUN_ERROR` of that kind), and `useViewCompose` tells the visitor to
+keep the part they want answered, with the site's limit. Every other refusal
+before planning says the opposite, that it is not about their question.
 
 **Prompt shape examples.** The system prompt includes worked examples of the
 required output shape by default. Their ids are placeholders, not catalog ids.

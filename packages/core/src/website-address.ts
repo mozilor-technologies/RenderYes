@@ -21,7 +21,8 @@
  * - No IP literal, `localhost` or single-label host. A visitor's website has a
  *   name.
  * - More than one distinct site named means none is returned. The code does
- *   not guess which one the visitor meant.
+ *   not guess which one the visitor meant. A host with and without `www.`, or
+ *   with `http:` and `https:`, is one site, reported as first written.
  *
  * A bare domain (`candlecraft.example`) is read as `https:`. Reserved names
  * such as `.example` and `.test` are accepted on purpose: there is no TLD
@@ -60,12 +61,18 @@ export function extractWebsiteAddress(
 ): string | undefined {
   if (typeof text !== "string" || text.length === 0) return undefined;
   const ignored = new Set((options.ignoreHosts ?? []).map(comparableHost));
-  const found = new Set<string>();
+  // Keyed by host without `www.` and by port, so "candlecraft.example" and
+  // "https://www.candlecraft.example/shop" in one note are one site, reported
+  // as written first.
+  const found = new Map<string, string>();
   for (const token of text.split(/\s+/)) {
     const origin = originOfToken(token);
     if (!origin) continue;
-    if (ignored.has(comparableHost(new URL(origin).hostname))) continue;
-    found.add(origin);
+    const url = new URL(origin);
+    const host = comparableHost(url.hostname);
+    if (ignored.has(host)) continue;
+    const site = `${host}:${url.port}`;
+    if (!found.has(site)) found.set(site, origin);
     if (found.size > 1) return undefined;
   }
   return found.values().next().value;

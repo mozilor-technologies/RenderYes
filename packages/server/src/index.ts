@@ -900,9 +900,7 @@ function assertPrompt(
   if (typeof prompt !== "string" || prompt.trim().length < MIN_PROMPT_LENGTH) {
     throw new Error(`Prompt must contain at least ${MIN_PROMPT_LENGTH} characters`);
   }
-  if (prompt.length > maxLength) {
-    throw new Error(`Prompt must be at most ${maxLength} characters`);
-  }
+  if (prompt.length > maxLength) throw new PromptTooLongError(maxLength);
 }
 
 /** The shortest prompt accepted: anything less is an empty or accidental submit. */
@@ -1766,6 +1764,21 @@ export interface ViewServer<Session> {
  * is supposed to retry, and a status that says "your request was wrong"
  * teaches it not to. The message is visitor-safe.
  */
+/**
+ * A prompt over the server's `maxPromptLength`, refused before any provider is
+ * called. Carries `kind: "prompt-too-long"` on the batch response and on the
+ * stream's `RUN_ERROR`, so a client can tell the visitor to shorten what they
+ * pasted, which a generic refusal ("this isn't about your question") gets
+ * exactly wrong.
+ */
+export class PromptTooLongError extends Error {
+  readonly kind = "prompt-too-long";
+  constructor(readonly maxLength: number) {
+    super(`Prompt must be at most ${maxLength} characters`);
+    this.name = "PromptTooLongError";
+  }
+}
+
 export class ComposeRateLimitedError extends Error {
   constructor(message = "Too many requests right now. Try again in a moment.") {
     super(message);

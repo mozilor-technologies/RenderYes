@@ -256,12 +256,39 @@ test("an over-limit paste is refused inside the stream before the plan step star
     );
     const events = await streamEvents(response);
     assert.equal(events.at(-1).type, "RUN_ERROR");
+    assert.equal(events.at(-1).kind, "prompt-too-long");
     assert.match(events.at(-1).reason, /at most 2000 characters/);
     assert.equal(
       events.some((event) => event.type === "STEP_STARTED"),
       false,
       "no planning step may start for a prompt over the ceiling",
     );
+  } finally {
+    await upstream.close();
+  }
+});
+
+test("an over-limit paste on the batch route is a 400 a client can tell apart", async () => {
+  const upstream = await startUpstream();
+  try {
+    const server = await serverWith(upstream.baseUrl, {
+      maxPromptLength: 500,
+      planProviders: [{ id: "scripted", plans: [PLAN] }],
+    });
+    const handler = createViewHttpHandler(server, { requireAdmin: () => true });
+    const response = await handler(
+      new Request("http://localhost/api/compose", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ catalogId: "setup-guide", prompt: "y".repeat(501) }),
+      }),
+    );
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+      ok: false,
+      error: "Prompt must be at most 500 characters",
+      kind: "prompt-too-long",
+    });
   } finally {
     await upstream.close();
   }
@@ -335,9 +362,10 @@ test("a model that writes an address into its plan does not set the value", asyn
     const server = await serverWith(upstream.baseUrl, {
       promptExtraction: { websiteAddress: true },
     });
+    // The only place a model can write free text is a prop. A valid plan
+    // carrying an address there must render, and must not set the value.
     const forged = {
       ...PLAN,
-      extracted: { websiteAddress: "https://attacker.example" },
       nodes: [{ ...PLAN.nodes[0], props: { title: "https://attacker.example" } }],
     };
     const result = await server.composeAgainstPublishedCatalogs({
@@ -351,10 +379,10 @@ test("a model that writes an address into its plan does not set the value", asyn
         },
       }),
     });
-    // Whatever the plan validator makes of the extra key, the extracted value
-    // can only come from the prompt, which names no site.
-    if (result.ok) assert.equal("extracted" in result, false);
-    else assert.equal(result.extracted, undefined);
+    assert.equal(result.ok, true);
+    assert.match(JSON.stringify(result.messages), /attacker\.example/);
+    // The value can only come from the prompt, which names no site.
+    assert.equal("extracted" in result, false);
   } finally {
     await upstream.close();
   }

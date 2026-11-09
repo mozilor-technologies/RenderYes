@@ -25,6 +25,9 @@ const FOUND = {
   "https://candlecraft.example and candlecraft.example/about are one site":
     "https://candlecraft.example",
   "https://xn--bcher-kva.example/": "https://xn--bcher-kva.example",
+  // One site written two ways is one site, reported as first written.
+  "Store is candlecraft.example (https://www.candlecraft.example/shop)":
+    "https://candlecraft.example",
 };
 
 const NOTHING = [

@@ -67,6 +67,11 @@ that names no site keeps it, `reset` clears it) and is `{}` otherwise. The
 batch result and `RUN_FINISHED` carry the same object; the hook re-checks each
 value on arrival. See `INTEGRATION.md` §2.3.
 
+A prompt over the server's `maxPromptLength` fails with `errorKind`
+`"prompt-too-long"` and copy telling the visitor to shorten it; the server
+throws `PromptTooLongError` (`kind: "prompt-too-long"`, a `400` on the batch
+route).
+
 ## HTTP service
 
 `createViewHttpHandler` owns the fixed paths exported as `VIEW_HTTP_ROUTES`.

@@ -199,6 +199,23 @@ describe("applyComposeEvent", () => {
     }
   });
 
+  it("sets nothing on a finish that is not a clean success, as the batch path does", () => {
+    for (const fields of [
+      { kind: "data-unavailable", reason: "The data could not be loaded." },
+      { fellBack: true, kind: "invalid", reason: "That change could not be applied." },
+    ]) {
+      const state = apply([
+        event("RUN_STARTED", { catalogId: "c", surfaceId: "main" }),
+        event("RUN_FINISHED", {
+          planId: "plan-1",
+          ...fields,
+          extracted: { websiteAddress: "https://candlecraft.example" },
+        }),
+      ]);
+      expect(state.extracted).toBeUndefined();
+    }
+  });
+
   it("a new run starts with nothing extracted", () => {
     const finished = apply([
       event("RUN_FINISHED", {
@@ -210,7 +227,7 @@ describe("applyComposeEvent", () => {
       finished,
       event("RUN_STARTED", { catalogId: "c", surfaceId: "main" }),
     );
-    expect(restarted.extracted).toEqual({});
+    expect(restarted.extracted).toBeUndefined();
   });
 });
 

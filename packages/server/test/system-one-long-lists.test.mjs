@@ -761,6 +761,72 @@ test("a value is matched by whole words: one value's letters inside another word
   assert.deepEqual(hits("a formality, a romantic malingerer"), []);
 });
 
+test("a value named only inside a longer value of the same field is not named: West Virginia is not Virginia", () => {
+  const regions = [
+    ...REGIONS,
+    "West Virginia",
+    "Sudan",
+    "South Sudan",
+    "New South Wales",
+  ];
+  const { plannerManifest } = guide({ regions });
+  const hits = (prompt) => named(lawsDraft(plannerManifest, prompt), "regions");
+  assert.deepEqual(hits("customers in West Virginia"), ["West Virginia"]);
+  assert.deepEqual(hits("customers in Virginia"), ["Virginia"]);
+  assert.deepEqual(hits("customers in South Sudan"), ["South Sudan"]);
+  // Named on its own as well, the shorter value is named too.
+  assert.deepEqual(hits("customers in Virginia and West Virginia"), [
+    "Virginia",
+    "West Virginia",
+  ]);
+  assert.deepEqual(hits("Sudan, and South Sudan too"), ["Sudan", "South Sudan"]);
+  // Two values that overlap without one holding the other are both named.
+  const overlapping = guide({ regions: [...REGIONS, "New York", "York City"] });
+  assert.deepEqual(
+    named(lawsDraft(overlapping.plannerManifest, "a shop in new york city"), "regions"),
+    ["New York", "York City"],
+  );
+  // So the filter is the one place, not the two.
+  assert.deepEqual(
+    lawsDraft(plannerManifest, "customers in West Virginia").draft.dataRequests[0].query
+      .filter,
+    { combine: "all", conditions: [regionsContain("West Virginia")] },
+  );
+});
+
+test("one place named once is one value to the compound guard, however the catalog lists it", () => {
+  const regions = [...REGIONS, "West Virginia", "QUEBEC"];
+  const { plannerManifest } = guide({ regions });
+  const guard = (prompt) =>
+    guardPrompt(prompt, lawsDraft(plannerManifest, prompt).vocabulary);
+  // "West Virginia" is not "Virginia and West Virginia": the conjunction
+  // joins it to something the rules cannot account for.
+  assert.equal(
+    guard("customers in West Virginia and the install steps"),
+    "compound-prompt",
+  );
+  assert.equal(guard("customers in West Virginia and Virginia"), undefined);
+  // Two declared values that differ only in case are both what the visitor
+  // typed, and both stay in the filter; they are still one place.
+  const quebec = lawsDraft(plannerManifest, "visitors in quebec");
+  assert.deepEqual(named(quebec, "regions"), ["Quebec", "QUEBEC"]);
+  assert.deepEqual(quebec.draft.dataRequests[0].query.filter, {
+    combine: "any",
+    conditions: [regionsContain("Quebec"), regionsContain("QUEBEC")],
+  });
+  assert.equal(guard("visitors in Quebec and the install steps"), "compound-prompt");
+  assert.equal(guard("visitors in Quebec and Germany"), undefined);
+});
+
+test("two spellings of one scalar argument's value are not a value the rules can choose between", () => {
+  const { plannerManifest } = guide({ platforms: [...PLATFORMS, "Shopify"] });
+  const drafted = installDraft(plannerManifest, "install on shopify");
+  assert.deepEqual(
+    { ok: drafted.ok, reason: drafted.reason },
+    { ok: false, reason: "argument-ambiguous:platform" },
+  );
+});
+
 test("a value another field also declares constrains both fields, as on a short list", () => {
   const { plannerManifest } = guide({
     jurisdictions: ["California", "Virginia", "Brazil", "EU & UK"],

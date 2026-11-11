@@ -348,18 +348,24 @@ export function guardPrompt(
  * field ("politics and business"), which a single request expresses as an
  * any-group. With no vocabulary hit on both sides there is no way to know
  * what the second ask is, so it is not the fast path's to answer.
+ *
+ * Two values means two things the visitor named. A catalog that lists one
+ * value under two spellings ("Quebec", "QUEBEC") gets two hits from one word,
+ * and they count once.
  */
 export function looksCompound(
   prompt: string,
   vocabulary: readonly VocabularyHit[],
 ): boolean {
   if (!CONJUNCTION.test(prompt.replace(LEADING_CONJUNCTION, ""))) return false;
-  const perField = new Map<string, number>();
+  const perField = new Map<string, Set<string>>();
   for (const hit of vocabulary) {
     const key = `${hit.kind}:${hit.name}`;
-    perField.set(key, (perField.get(key) ?? 0) + 1);
+    const named = perField.get(key) ?? new Set<string>();
+    named.add(tokenize(hit.value).join(" "));
+    perField.set(key, named);
   }
-  return ![...perField.values()].some((count) => count >= 2);
+  return ![...perField.values()].some((named) => named.size >= 2);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -833,15 +839,41 @@ export function catalogVocabulary(
   return entries.filter((entry) => entry.tokens.length > 0);
 }
 
-/** Every vocabulary entry whose tokens appear, in order, in the prompt. */
+/**
+ * Every vocabulary entry the prompt names: its tokens appear, in order, in
+ * the prompt, and at least once not inside a longer value of the same field.
+ *
+ * "West Virginia" names West Virginia. The word "Virginia" is in it, but the
+ * visitor did not name Virginia, and reading it as both would filter by a
+ * place nobody asked for and hand the compound guard two values where one was
+ * typed. "Virginia and West Virginia" names both: there the shorter value
+ * stands on its own. Only a value of the same argument or field shadows
+ * another; what two fields each declare is matched in each.
+ */
 export function matchVocabulary(
   prompt: string,
   vocabulary: readonly VocabularyEntry[],
 ): VocabularyHit[] {
   const words = tokenize(prompt);
-  const hits: VocabularyHit[] = [];
+  const found: { entry: VocabularyEntry; starts: number[] }[] = [];
   for (const entry of vocabulary) {
-    if (!containsSequence(words, entry.tokens)) continue;
+    const starts = occurrences(words, entry.tokens);
+    if (starts.length > 0) found.push({ entry, starts });
+  }
+  const hits: VocabularyHit[] = [];
+  for (const { entry, starts } of found) {
+    const length = entry.tokens.length;
+    const shadowedAt = (start: number): boolean =>
+      found.some(
+        (other) =>
+          other.entry.kind === entry.kind &&
+          other.entry.name === entry.name &&
+          other.entry.tokens.length > length &&
+          other.starts.some(
+            (at) => at <= start && start + length <= at + other.entry.tokens.length,
+          ),
+      );
+    if (starts.every(shadowedAt)) continue;
     const { tokens: _tokens, ...hit } = entry;
     hits.push(hit);
   }
@@ -869,18 +901,17 @@ function stem(word: string): string {
   return word;
 }
 
-function containsSequence(
-  words: readonly string[],
-  sequence: readonly string[],
-): boolean {
-  if (sequence.length === 0 || sequence.length > words.length) return false;
+/** Every position in `words` at which `sequence` starts. */
+function occurrences(words: readonly string[], sequence: readonly string[]): number[] {
+  const starts: number[] = [];
+  if (sequence.length === 0) return starts;
   outer: for (let start = 0; start + sequence.length <= words.length; start += 1) {
     for (let offset = 0; offset < sequence.length; offset += 1) {
       if (words[start + offset] !== sequence[offset]) continue outer;
     }
-    return true;
+    starts.push(start);
   }
-  return false;
+  return starts;
 }
 
 /* ------------------------------------------------------------------------ */

@@ -468,7 +468,9 @@ One: the repair attempt goes to the fallback, or is refused.
 `threshold` defaults to 0.75 with no fallback (measured on a 1,004-prompt newsroom test set:
 62% of prompts taken at 98.4% precision) and 0.85 with one, where deferring is cheap. The
 compound guard is catalog-aware: a conjunction joining two declared values of one field
-("politics and business") is one request with an any-group, not a compound prompt.
+("politics and business") is one request with an any-group, not a compound prompt. Two values
+means two things the visitor named: a value matched only inside a longer value of the same field
+("Virginia" in "West Virginia") is not matched, and two spellings of one value count once.
 
 A refusal from this stage is the planner's existing `unsupported` result with a written reason,
 so the client's full-site link and refusal handling are unchanged.

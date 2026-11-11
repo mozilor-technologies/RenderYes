@@ -262,6 +262,8 @@ A declared list is read up to **200 values**
 states, your categories. A visitor's words are matched against it by plain
 code — whole words, in order, whatever the case, and the value goes into the
 plan in your spelling — so the list costs no tokens and is sent to no model.
+Where one declared value holds another, the longer one is what was named:
+"West Virginia" filters by West Virginia, not by Virginia as well.
 Two kinds of list are not read at all, not even in part, and give the fast
 path no words for that field: a prompt naming one of its values is answered
 without the filter, and "Germany and France" is refused as two asks.

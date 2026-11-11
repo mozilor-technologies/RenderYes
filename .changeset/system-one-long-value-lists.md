@@ -17,6 +17,12 @@ letters or digits, as ISO language, currency and state codes are), because
 "show it as a table" is not a request for Italian. A list of 32 values or
 fewer is read whatever it holds, as before.
 
+A value matched only inside a longer value of the same field is no longer
+matched: "West Virginia" names West Virginia, not Virginia too, at any list
+length. Before, it filtered by both and counted as two values, which switched
+the compound guard off for "West Virginia and …". Two declared spellings of
+one value ("Quebec", "QUEBEC") count as one value to that guard.
+
 Nothing a model is shown changes. The decision endpoint still receives ids and
 purpose lines only, and the language-model contract still lists a scalar
 field's `allowedValues` only up to 32.

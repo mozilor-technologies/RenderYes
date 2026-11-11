@@ -59,6 +59,27 @@ plans), keyed by `planId` and filtered by the owner key from
 - **Is the capability's `purpose` prose actually descriptive?** The model reads
   it to choose. "graphql.books" tells it nothing.
 
+### System One ignores a value the visitor named, or refuses "A and B" as several things
+
+"Visitors in Germany" comes back with every row, or "Germany and France" is
+refused with "That asks for several things at once" — on a field whose values
+you declared. The fast path matches a visitor's words against a declared list
+only when it reads the list, and it leaves two kinds unread, whole:
+
+- **More than 200 values** on one field or argument.
+- **More than 32 codes** — most values a single run of at most three letters
+  or digits (`IT`, `USD`, `ME`).
+
+The server log names the list the first time its capability is planned:
+`[planner:<id>] <capability>: filter field "regions" declares … values, …`.
+Declare the names a visitor types, cut the enum to the values that matter, or
+plan that capability with `hostRules.draft`. See
+[`INTEGRATION.md` §2.1](INTEGRATION.md#21-system-one-the-fast-path-with-or-without-a-language-model).
+
+Also check that the value is declared at all: "West Virginia" against a list
+that holds only "Virginia" matches Virginia, because the words are matched as
+written.
+
 ### A component is never chosen
 
 Four causes, all silent:

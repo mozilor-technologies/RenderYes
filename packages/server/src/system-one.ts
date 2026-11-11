@@ -839,6 +839,54 @@ export function catalogVocabulary(
   return entries.filter((entry) => entry.tokens.length > 0);
 }
 
+/** A declared list the rules do not read, for telling the host once. */
+interface UnreadValueList {
+  kind: VocabularyHit["kind"];
+  name: string;
+  count: number;
+  /** Longer than the ceiling, or a list of more than 32 codes. */
+  why: "too-long" | "codes";
+}
+
+/**
+ * The declared lists of one capability that `catalogVocabulary` leaves out:
+ * the same arguments and plannable filter fields, where the list is longer
+ * than the ceiling or is one of codes. A list the rules skip for any other
+ * reason (it holds a number, or an object) was never one a visitor names.
+ */
+function unreadValueLists(
+  capability: PlannerCapability,
+  dataType: PlannerManifest["dataTypes"][number] | undefined,
+): UnreadValueList[] {
+  const unread: UnreadValueList[] = [];
+  const note = (
+    kind: UnreadValueList["kind"],
+    name: string,
+    schema: Record<string, unknown> | undefined,
+  ): void => {
+    if (!schema) return;
+    const source =
+      isArraySchema(schema) && isPlainRecord(schema.items) ? schema.items : schema;
+    const values = source.enum;
+    if (!Array.isArray(values) || readableEnum(source)) return;
+    if (values.length > SYSTEM_ONE_MAX_DECLARED_VALUES) {
+      unread.push({ kind, name, count: values.length, why: "too-long" });
+    } else if (values.length > VALUES_READ_AS_DECLARED) {
+      unread.push({ kind, name, count: values.length, why: "codes" });
+    }
+  };
+  for (const [name, schema] of Object.entries(properties(capability.inputSchema))) {
+    note("param", name, schema);
+  }
+  if (dataType && isListShaped(capability.output.shape)) {
+    const fields = properties(dataType.schema);
+    for (const field of plannableFilterFields(capability)) {
+      note("filter", field, fields[field]);
+    }
+  }
+  return unread;
+}
+
 /**
  * Every vocabulary entry the prompt names: its tokens appear, in order, in
  * the prompt, and at least once not inside a longer value of the same field.
@@ -1878,6 +1926,42 @@ export function createSystemOnePlanProvider(
     timer.unref?.();
     ping();
   }
+  /**
+   * The catalog values the prompt names for a capability. The first time a
+   * capability of a catalog is read, any declared list the rules leave out
+   * is named in a warning, once: an unread list fails quietly — the prompt
+   * is answered without the filter — and the owner is the one who can
+   * shorten it or declare names.
+   */
+  const warnedCapabilities = new Set<string>();
+  const vocabularyOf = (
+    prompt: string,
+    capabilityId: string,
+    planning: PlanningContext,
+  ): VocabularyHit[] => {
+    const manifest = planning.plannerManifest;
+    const key = `${manifest.catalogHash}:${capabilityId}`;
+    if (!warnedCapabilities.has(key)) {
+      warnedCapabilities.add(key);
+      const capability = manifest.capabilities.find(
+        (candidate) => candidate.id === capabilityId,
+      );
+      const dataType = manifest.dataTypes.find(
+        (candidate) => candidate.id === capability?.output.dataTypeId,
+      );
+      for (const list of capability ? unreadValueLists(capability, dataType) : []) {
+        const where = `${list.kind === "param" ? "argument" : "filter field"} "${list.name}"`;
+        const why =
+          list.why === "too-long"
+            ? `more than the ${SYSTEM_ONE_MAX_DECLARED_VALUES} System One reads`
+            : `mostly codes of three characters or fewer, which System One reads only up to ${VALUES_READ_AS_DECLARED}`;
+        console.warn(
+          `[planner:${config.id}] ${capabilityId}: ${where} declares ${list.count} values, ${why}; a prompt that names one is answered without it`,
+        );
+      }
+    }
+    return vocabularyFor(prompt, capabilityId, planning);
+  };
   const decide = async (prompt: string, questions: SystemOneQuestions) => {
     inflight += 1;
     try {
@@ -2059,7 +2143,7 @@ export function createSystemOnePlanProvider(
       return undefined;
     const guard = guardPrompt(
       prompt,
-      vocabularyFor(prompt, forced.capabilityId, planning),
+      vocabularyOf(prompt, forced.capabilityId, planning),
       { freeText: freeTextFor(forced.capabilityId, planning) },
     );
     if (guard) {
@@ -2086,7 +2170,7 @@ export function createSystemOnePlanProvider(
   ) => {
     const decision = await decide(prompt, questions);
     const vocabulary = decision.ok
-      ? vocabularyFor(prompt, decision.capabilityId, planning)
+      ? vocabularyOf(prompt, decision.capabilityId, planning)
       : [];
     const declined = hostRefused(prompt, decision, stage);
     if (declined) return { decision, ...declined };
@@ -2257,7 +2341,7 @@ export function createSystemOnePlanProvider(
           decide(prompt, questions),
         ]);
         const vocabulary = decision.ok
-          ? vocabularyFor(prompt, decision.capabilityId, planning)
+          ? vocabularyOf(prompt, decision.capabilityId, planning)
           : [];
         const declined = hostRefused(prompt, decision, planning.stage);
         const forced = declined
@@ -2299,7 +2383,7 @@ export function createSystemOnePlanProvider(
           stage: planning.stage,
           chosenCapabilityId: chosen,
           capabilityIds: planning.capabilityIds,
-          vocabulary: vocabularyFor(prompt, chosen, planning),
+          vocabulary: vocabularyOf(prompt, chosen, planning),
           hasFallback: Boolean(fallback),
           freeText: freeTextFor(chosen, planning),
         });

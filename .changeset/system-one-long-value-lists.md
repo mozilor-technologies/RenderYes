@@ -15,7 +15,8 @@ field with no declared values does: a list longer than 200 values, and a list
 of more than 32 codes (most of its values a single run of at most three
 letters or digits, as ISO language, currency and state codes are), because
 "show it as a table" is not a request for Italian. A list of 32 values or
-fewer is read whatever it holds, as before.
+fewer is read whatever it holds, as before. An unread list is named once in a
+`console.warn`, the first time its capability is planned.
 
 A value matched only inside a longer value of the same field is no longer
 matched: "West Virginia" names West Virginia, not Virginia too, at any list

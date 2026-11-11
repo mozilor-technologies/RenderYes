@@ -277,6 +277,11 @@ without the filter, and "Germany and France" is refused as two asks.
   names. A list of 32 values or fewer is read whatever it holds, as it always
   was, so a short list of codes carries exactly that risk.
 
+An unread list is named once in the server log, the first time its capability
+is planned — `[planner:<id>] <capability>: filter field "regions" declares
+5000 values, more than the 200 System One reads; …` — because the failure is
+otherwise quiet: a view with no filter looks like an answer.
+
 (None of this is the limit on what a language model is shown: the planning
 contract lists a scalar field's values as `allowedValues` only up to 32, and
 that is unchanged.)

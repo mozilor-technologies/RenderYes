@@ -504,14 +504,21 @@ test("above the ceiling the compound guard has no values to join, so 'A and B' i
   const regions = [...REGIONS, ...places(SYSTEM_ONE_MAX_DECLARED_VALUES)];
   const { plannerManifest } = guide({ regions });
   assert.equal(lawsDraft(plannerManifest, "Germany and California").vocabulary.length, 0);
-  const { result, classification } = await compose(
-    plannerManifest,
-    SHOPIFY_GERMANY_CALIFORNIA,
-    scriptedDecisions(MEASURED),
-  );
+  let composed;
+  const warned = await warningsDuring(async () => {
+    composed = await compose(
+      plannerManifest,
+      SHOPIFY_GERMANY_CALIFORNIA,
+      scriptedDecisions(MEASURED),
+    );
+  });
+  const { result, classification } = composed;
   assert.equal(result.ok, false);
   assert.equal(result.reason, "That asks for several things at once. Try one at a time.");
   assert.equal(classification.reason, "compound-prompt");
+  // The refusal reads like any compound refusal; the log says what is behind it.
+  assert.equal(warned.length, 1, warned.join("\n"));
+  assert.match(warned[0], /filter field "regions" declares 243 values/);
 });
 
 test("the language model's contract is untouched: it still shows a scalar field's values only up to 32", () => {
@@ -692,6 +699,80 @@ test("a long list is one of codes when most of its values are: half is not most"
       `${codeCount} codes, ${nameCount} names`,
     );
   }
+});
+
+/* ------------------------------------------- an unread list is not silent */
+
+/** Runs `work` with `console.warn` captured, and returns what was warned. */
+async function warningsDuring(work) {
+  const warned = [];
+  const original = console.warn;
+  console.warn = (...args) => warned.push(args.join(" "));
+  try {
+    await work();
+  } finally {
+    console.warn = original;
+  }
+  return warned;
+}
+
+test("a list the rules do not read is named in a warning, once per capability of a catalog", async () => {
+  const regions = places(SYSTEM_ONE_MAX_DECLARED_VALUES + 1);
+  const { plannerManifest } = guide({ regions, platforms: LANGUAGE_CODES });
+  const prompts = ["visitors in Place001", "visitors in Place002", "install on de"];
+  const decisions = scriptedDecisions({
+    [prompts[0]]: { choice: LAWS, confidence: 0.96 },
+    [prompts[1]]: { choice: LAWS, confidence: 0.96 },
+    [prompts[2]]: { choice: INSTALL, confidence: 0.96 },
+  });
+  const provider = createSystemOnePlanProvider({
+    id: "system-one",
+    url: "http://127.0.0.1:8000/v1/systemone",
+    model: "renderyes",
+    fetchImpl: decisions.fetchImpl,
+  });
+  const results = [];
+  const warned = await warningsDuring(async () => {
+    for (const prompt of prompts) {
+      results.push(
+        await composeDataPlan({
+          site,
+          plannerManifest,
+          surfaceId: "main",
+          prompt,
+          provider,
+        }),
+      );
+    }
+  });
+  provider.close();
+  // The over-long list: answered, without the filter, and said so once.
+  assert.equal(results[0].ok, true);
+  assert.equal(results[0].plan.dataRequests[0].query.filter, undefined);
+  assert.equal(results[1].ok, true);
+  const tooLong = warned.filter((line) => line.includes('filter field "regions"'));
+  assert.equal(tooLong.length, 1, warned.join("\n"));
+  assert.match(tooLong[0], /^\[planner:system-one\] guide\.laws\.list: /);
+  assert.match(tooLong[0], /declares 201 values, more than the 200 System One reads/);
+  // The list of codes on a required argument: no value, no draft, and why.
+  assert.equal(results[2].ok, false);
+  const codes = warned.filter((line) => line.includes('argument "platform"'));
+  assert.equal(codes.length, 1, warned.join("\n"));
+  assert.match(codes[0], /^\[planner:system-one\] guide\.install\.guide: /);
+  assert.match(codes[0], /declares 40 values, mostly codes of three characters or fewer/);
+});
+
+test("a list the rules read warns about nothing", async () => {
+  const { plannerManifest } = guide();
+  const warned = await warningsDuring(async () => {
+    const { result } = await compose(
+      plannerManifest,
+      GERMANY,
+      scriptedDecisions(MEASURED),
+    );
+    assert.equal(result.ok, true);
+  });
+  assert.deepEqual(warned, []);
 });
 
 /* ------------------------------------------------ what a long list matches */

@@ -734,6 +734,62 @@ const LIMIT_ARGUMENT_NAMES = new Set([
   "max_results",
 ]);
 
+/**
+ * The longest declared value list the rules read and match a prompt against.
+ *
+ * A list is a field's or an argument's `enum` (or its `items.enum`). Matching
+ * is plain code over the visitor's words: no value is sent to the decision
+ * model, which sees ids and purpose lines only, so this is not a token
+ * budget. It is a different limit from the 32 values the language model's
+ * planning contract shows as `allowedValues` (`declaredFieldEnumValues`),
+ * which pays for every value on every compose and stays where it is.
+ *
+ * What the ceiling bounds is the work one request does on a catalog nobody
+ * tuned for it — every value of the decided capability is tokenised and
+ * compared with the prompt — and how far a list can grow before ordinary
+ * words start to be values. Two hundred holds the lists a visitor names
+ * members of: the 193 member states of the UN, a country's states or
+ * provinces, a site's categories. It does not hold every such list — ISO
+ * 3166 names 249 countries and territories.
+ *
+ * A longer list is not read at all, rather than read in part: its field gives
+ * the rules no words, exactly as a field with no declared values does, so a
+ * prompt that names one is answered without that filter or argument. Half a
+ * list would match "Austria" and silently ignore "Zambia".
+ */
+export const SYSTEM_ONE_MAX_DECLARED_VALUES = 200;
+
+/**
+ * A list this short is read whatever it holds, as it always was. It is the
+ * bound the rules used to share with the planning contract, kept here so that
+ * no catalog that worked before reads differently now.
+ */
+const VALUES_READ_AS_DECLARED = 32;
+
+/** One run of at most three ASCII letters or digits: `IT`, `USD`, `ok`, `10`. */
+const CODE_LIKE = /^[A-Za-z0-9]{1,3}$/;
+
+/**
+ * Whether a list is one of codes rather than names: most of its values are a
+ * single run of at most three letters or digits, as ISO language, currency
+ * and state codes are.
+ *
+ * Codes are ordinary words. Against the ISO two-letter language codes, "show
+ * it as a table" names Italian and Assamese; against the currency codes,
+ * "show all orders" names the Albanian lek. A list of up to 32 values is read
+ * regardless, because it always was; a longer list of codes was never read,
+ * and reading it now would turn prompts that were answered into prompts
+ * filtered by a word the visitor used in passing — and, with two such words,
+ * switch the compound guard off. So it stays unread, whole.
+ */
+function isCodeList(values: readonly unknown[]): boolean {
+  let codes = 0;
+  for (const value of values) {
+    if (typeof value === "string" && CODE_LIKE.test(value.trim())) codes += 1;
+  }
+  return codes * 2 > values.length;
+}
+
 /** Catalog values a prompt can name for one capability: enum arguments and enum filter fields. */
 export function catalogVocabulary(
   capability: PlannerCapability,
@@ -757,13 +813,7 @@ export function catalogVocabulary(
   if (dataType && isListShaped(capability.output.shape)) {
     for (const field of plannableFilterFields(capability)) {
       const schema = properties(dataType.schema)[field];
-      // The same derivation validation enforces, where the field is scalar;
-      // a list field keeps its values under `items`, which validation does
-      // not restrict and the contract does not show.
-      const values =
-        declaredFieldEnumValues(dataType, field)?.filter(
-          (value): value is string => typeof value === "string",
-        ) ?? (schema ? enumValues(schema) : undefined);
+      const values = filterFieldValues(dataType, field, schema);
       if (!values) continue;
       const semanticType = (dataType.fields as Record<string, { semanticType?: string }>)[
         field
@@ -2369,15 +2419,57 @@ function properties(schema: unknown): Record<string, Record<string, unknown>> {
   );
 }
 
-/** String enum values on a schema or on its `items`, bounded like the contract's own derivation. */
+/**
+ * A schema's own `enum`, when it is one the rules read: up to 32 values of
+ * any kind, or up to `SYSTEM_ONE_MAX_DECLARED_VALUES` that are names rather
+ * than codes.
+ */
+function readableEnum(schema: Record<string, unknown>): unknown[] | undefined {
+  const values = schema.enum;
+  if (!Array.isArray(values) || values.length === 0) return undefined;
+  if (values.length <= VALUES_READ_AS_DECLARED) return values;
+  if (values.length > SYSTEM_ONE_MAX_DECLARED_VALUES || isCodeList(values))
+    return undefined;
+  return values;
+}
+
+/** String enum values on a schema or on its `items`, where the list is one the rules read. */
 function enumValues(schema: Record<string, unknown>): string[] | undefined {
   const source =
     isArraySchema(schema) && isPlainRecord(schema.items) ? schema.items : schema;
-  const values = source.enum;
-  if (!Array.isArray(values) || values.length === 0 || values.length > 32)
-    return undefined;
+  const values = readableEnum(source);
+  if (!values) return undefined;
   const strings = values.filter((value): value is string => typeof value === "string");
   return strings.length === values.length ? strings : undefined;
+}
+
+/**
+ * The strings a plannable filter field declares.
+ *
+ * A scalar field of at most 32 values is read by the contract's own
+ * derivation, so the rules name exactly the list validation enforces. A
+ * longer scalar list is one the contract shows no model and validation does
+ * not restrict; it is read here the same way — any primitives, so a nullable
+ * field's `null` is skipped rather than disqualifying the list — under this
+ * module's own bounds (`readableEnum`). A list field keeps its values under
+ * `items`, which validation does not restrict and the contract does not show
+ * at any length.
+ */
+function filterFieldValues(
+  dataType: PlannerManifest["dataTypes"][number],
+  field: string,
+  schema: Record<string, unknown> | undefined,
+): string[] | undefined {
+  const isString = (value: unknown): value is string => typeof value === "string";
+  const shown = declaredFieldEnumValues(dataType, field);
+  if (shown) return shown.filter(isString);
+  if (!schema) return undefined;
+  if (isArraySchema(schema)) return enumValues(schema);
+  const values = readableEnum(schema);
+  if (!values) return undefined;
+  const primitive = (value: unknown): boolean =>
+    value === null || ["string", "number", "boolean"].includes(typeof value);
+  return values.every(primitive) ? values.filter(isString) : undefined;
 }
 
 function isArraySchema(schema: Record<string, unknown>): boolean {

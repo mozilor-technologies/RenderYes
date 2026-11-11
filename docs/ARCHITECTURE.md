@@ -436,7 +436,15 @@ value is an enum the data-type schema declares on a plannable filter field
 declares, or a limit argument from a count in the prompt; the sort is the first date-typed
 `sortFields` entry, newest first unless the prompt says oldest; props come from the component's
 props schema. A value the catalog does not declare is never guessed — the draft is not built and
-the prompt is deferred. The draft then passes through exactly the validation every model draft
+the prompt is deferred. A declared list is read up to 200 values
+(`SYSTEM_ONE_MAX_DECLARED_VALUES`), on a field, a list field's `items` or an argument alike: up to
+32 values whatever they are, and beyond that when the list is one of names rather than codes
+(most of its values are not a single run of at most three letters or digits). That is a bound on
+plain code's matching work and on how many ordinary words can be values, not on what a model is
+shown: no declared value reaches the classifier at any length, and the 32 values the
+language-model contract shows as a scalar field's `allowedValues` (`declaredFieldEnumValues`,
+stage 2) is a separate limit that this stage neither raises nor depends on. The draft then passes
+through exactly the validation every model draft
 passes (stage 3). System One cannot bypass it, and a draft that fails is not repaired by System
 One: the repair attempt goes to the fallback, or is refused.
 
@@ -508,6 +516,13 @@ the unqualified list. The remedy is in the catalog — declare the values — no
 A prompt that asks for two things without a conjunction is answered by the model's "main"
 capability only. Both are visible in the `classify` event and bounded by the threshold; a host
 that cannot accept either keeps the language model in front (`shadow: true`, or no System One).
+A declared list the rules do not read fails the first way. A list longer than 200 values is not
+read, in whole or in part: its field gives the rules no words, so "visitors in Germany" against a
+5,000-value `regions` list is answered as the unqualified list, "Germany and France" is two asks
+to the compound guard, and a required argument with such a list has no value and no draft. So
+does a list of more than 32 codes — ISO language, currency or state codes — because codes are
+ordinary words ("show it as a table" is not Italian); a list of 32 or fewer codes is still read,
+as it always was, with exactly that risk.
 The model server's cold start is the host's to manage: a cold call exceeds `timeoutMs` and is
 treated as low confidence.
 

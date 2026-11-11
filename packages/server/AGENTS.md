@@ -103,8 +103,10 @@ carrying the same wiring report as
 A `SystemOneProviderConfig` (`{id, url, model}`) runs the fast path: a typed
 decision model picks the capability, and `src/system-one.ts` builds the draft
 from the catalogs by rules. The rules read values only from the catalog —
-declared enums on filter fields and arguments — and defer or refuse anything
-else; they never bypass validation. Keep it that way: a new rule that guesses a
+declared enums on filter fields and arguments, up to
+`SYSTEM_ONE_MAX_DECLARED_VALUES` (200) per list, and none of a longer list or
+of a list of more than 32 codes — and defer or refuse anything else; they
+never bypass validation. Keep it that way: a new rule that guesses a
 value is the mock this package already removed once. The two values read from
 the prompt itself — a search term into a required `q`-like argument, and a
 presentation cue picking among accepting components — pass the visitor's own

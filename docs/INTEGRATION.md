@@ -257,6 +257,28 @@ name** (section titles, difficulty levels, statuses) as enums on those fields
 and arguments. A value the catalog does not declare is never guessed — the
 prompt is deferred to the fallback or refused.
 
+A declared list is read up to **200 values**
+(`SYSTEM_ONE_MAX_DECLARED_VALUES`): the UN's member states, a country's
+states, your categories. A visitor's words are matched against it by plain
+code — whole words, in order, whatever the case, and the value goes into the
+plan in your spelling — so the list costs no tokens and is sent to no model.
+Two kinds of list are not read at all, not even in part, and give the fast
+path no words for that field: a prompt naming one of its values is answered
+without the filter, and "Germany and France" is refused as two asks.
+
+- **A list longer than 200 values.** Narrow the enum to the values a visitor
+  names, or plan that capability yourself with `hostRules.draft` (below).
+- **A list of more than 32 codes** — most of its values a single run of at
+  most three letters or digits, as ISO language (`it`, `as`, `is`), currency
+  (`ALL`, `TOP`) and state (`IN`, `OR`, `ME`) codes are. Codes are ordinary
+  words, and "show it as a table" is not a request for Italian. Declare
+  names. A list of 32 values or fewer is read whatever it holds, as it always
+  was, so a short list of codes carries exactly that risk.
+
+(None of this is the limit on what a language model is shown: the planning
+contract lists a scalar field's values as `allowedValues` only up to 32, and
+that is unchanged.)
+
 Prompts that never take the fast path, whatever the classifier says: repairs
 and free-text clarification answers (they continue a conversation the language
 model started), and any prompt that reads as an instruction override, an action

@@ -114,6 +114,7 @@ export {
   systemOneCandidates,
   systemOneRefusalReason,
   SYSTEM_ONE_CLARIFICATION_QUESTION,
+  SYSTEM_ONE_MAX_DECLARED_VALUES,
   type SystemOneCandidate,
   type SystemOneClassification,
   type SystemOneDecision,
